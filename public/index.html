@@ -1,0 +1,1450 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard — Chamados Abertos TO (Jira)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@300;400;500;600;700&family=Tomorrow:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <style>
+    :root { --bg:#f4f5f7; --card:#ffffff; --card2:#f8f9fa; --text:#002436; --muted:#575756; --accent:#EA4F24; --accent2:#002436; --border:#dee2e6; --green:#198754; --red:#dc3545; --amber:#ffc107; --navy:#002436; --gray:#575756; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: 'Barlow', system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:var(--bg); color:var(--text); }
+    h1,h2,h3,h4,h5 { font-family: 'Tomorrow', 'Barlow', sans-serif; }
+    header { padding:18px 24px; border-bottom:none; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; background:var(--navy); color:#fff; }
+    header h1 { margin:0; font-size:1.3rem; color:#fff; }
+    header .meta { color:rgba(255,255,255,.8); font-size:.85rem; }
+    header label.meta { color:rgba(255,255,255,.8); }
+    header input, header select { background:#fff; color:var(--text); border:1px solid var(--border); }
+    main { padding:20px 24px; max-width:1500px; margin:0 auto; }
+    .controls { display:flex; gap:8px; margin-bottom:18px; flex-wrap:wrap; align-items:center; }
+    button { background:var(--accent); color:#fff; border:none; padding:8px 14px; border-radius:0; cursor:pointer; font-weight:600; font-family:'Barlow',sans-serif; transition:background .2s; }
+    button:hover { background:#DC7B52; }
+    button.secondary { background:var(--navy); color:#fff; border:1px solid var(--navy); border-radius:0; }
+    button.secondary:hover { background:#173D57; }
+    .kpis { display:grid; grid-template-columns: repeat(auto-fit, minmax(180px,1fr)); gap:12px; margin-bottom:18px; }
+    .kpi { background:var(--card); padding:16px; border-radius:0; border:1px solid var(--border); border-top:3px solid var(--accent); }
+    .kpi .n { font-size:2rem; font-weight:800; color:var(--accent); line-height:1; font-family:'Tomorrow',sans-serif; }
+    .kpi .l { color:var(--muted); font-size:.8rem; margin-top:6px; text-transform:uppercase; letter-spacing:.05em; }
+    .kpi.red .n { color:var(--red); }
+    .kpi.amber .n { color:var(--amber); }
+    .kpi.green .n { color:var(--green); }
+    .grid { display:grid; grid-template-columns: repeat(6, 1fr); gap:14px; }
+    .card { background:var(--card); border:1px solid var(--border); border-radius:0; padding:14px; min-width:0; }
+    .card h3 { margin:0 0 10px; font-size:.95rem; color:var(--navy); font-weight:700; font-family:'Tomorrow',sans-serif; }
+    .card.col2 { grid-column: span 2; }   /* 3 por linha */
+    .card.col3 { grid-column: span 3; }   /* 2 por linha */
+    .card.wide { grid-column: 1 / -1; }   /* largura total */
+    @media (max-width:900px){ .card.col2, .card.col3 { grid-column: 1 / -1; } }
+    .chart-box { position:relative; width:100%; height:260px; }
+    .chart-box.tall { height:320px; }
+    @media (max-width:640px){ .chart-box { height:220px; } .chart-box.tall { height:260px; } main { padding:12px; } header { padding:12px; } .kpis { grid-template-columns: repeat(2,1fr); } }
+    canvas { display:block; width:100% !important; height:100% !important; }
+    .table-wrap { overflow:auto; border:1px solid var(--border); border-radius:0; max-height:420px; -webkit-overflow-scrolling: touch; }
+    .table-wrap table { min-width: 720px; }
+    table { width:100%; border-collapse:collapse; font-size:.82rem; }
+    th, td { padding:8px 10px; border-bottom:1px solid var(--border); text-align:left; vertical-align:top; }
+    th { background:var(--navy); color:#fff; position:sticky; top:0; font-weight:600; }
+    tr:hover { background:#f0f2f5; }
+    a { color:var(--accent); text-decoration:none; }
+    a:hover { color:var(--navy); }
+    .badge { display:inline-block; padding:2px 8px; border-radius:0; font-size:.72rem; background:#e9ecef; color:var(--text); }
+    .prio-Crítica { background:#7f1d1d; color:#fecaca; }
+    .prio-Alta { background:#7c2d12; color:#fed7aa; }
+    .prio-Média { background:#1e3a8a; color:#bfdbfe; }
+    .prio-Baixa { background:#14532d; color:#bbf7d0; }
+    .prio-Planejada { background:#312e81; color:#c7d2fe; }
+    .error { background:#f8d7da; color:#842029; padding:12px; border-radius:0; margin-bottom:16px; border:1px solid #f5c2c7; }
+    #loading { text-align:center; padding:40px; color:var(--muted); }
+    .empty { padding:20px; text-align:center; color:var(--muted); }
+    .activity { max-height:360px; overflow:auto; }
+    .act-item { display:flex; gap:10px; padding:10px 0; border-bottom:1px solid var(--border); }
+    .act-item:last-child { border-bottom:none; }
+    .act-dot { width:10px; height:10px; border-radius:50%; margin-top:6px; flex-shrink:0; }
+    .act-dot.change { background:var(--accent); }
+    .act-dot.comment { background:var(--accent2); }
+    .act-body { flex:1; min-width:0; }
+    .act-meta { color:var(--muted); font-size:.75rem; }
+    .act-text { font-size:.85rem; margin-top:2px; word-break:break-word; }
+    .act-key { color:var(--accent); font-weight:600; cursor:pointer; }
+    .act-key:hover { text-decoration:underline; }
+    .modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,.6); display:none; align-items:center; justify-content:center; z-index:1000; padding:20px; }
+    .modal-backdrop.open { display:flex; }
+    .modal { background:var(--card); border:1px solid var(--border); border-radius:0; max-width:720px; width:100%; max-height:80vh; overflow:auto; padding:20px; border-top:4px solid var(--accent); }
+    .modal h2 { margin:0 0 12px; font-size:1.1rem; color:var(--navy); font-family:'Tomorrow',sans-serif; }
+    .modal .close { float:right; background:var(--navy); color:#fff; border:none; padding:4px 10px; border-radius:0; cursor:pointer; }
+    .modal .section { margin-top:14px; }
+    .modal .section h4 { color:var(--navy); font-size:.85rem; margin:0 0 6px; text-transform:uppercase; letter-spacing:.05em; font-family:'Tomorrow',sans-serif; }
+    .modal .hist { padding:8px 0; border-bottom:1px solid var(--border); font-size:.85rem; }
+    .modal .hist:last-child { border-bottom:none; }
+    .modal .cmt { padding:8px 0; border-bottom:1px solid var(--border); font-size:.85rem; }
+    .modal .cmt:last-child { border-bottom:none; }
+    .modal .cmt .author { font-weight:600; color:var(--accent); }
+    .modal .cmt .date { color:var(--muted); font-size:.75rem; }
+    .modal .cmt .body { margin-top:4px; white-space:pre-wrap; word-break:break-word; }
+  .xray-modal { max-width:920px; }
+  .xray-modal .kv { display:grid; grid-template-columns: 170px 1fr; gap:4px 12px; font-size:.85rem; margin:6px 0; }
+  .xray-modal .kv div:nth-child(odd) { color:var(--muted); font-weight:600; }
+  .xray-modal .timeline { border-left:2px solid var(--accent); padding-left:12px; margin:8px 0; }
+  .xray-modal .timeline .ev { padding:6px 0; border-bottom:1px solid var(--border); font-size:.85rem; }
+  .xray-modal .timeline .ev:last-child { border-bottom:none; }
+    .gallery { display:grid; grid-template-columns: repeat(auto-fill, minmax(110px,1fr)); gap:8px; margin-bottom:10px; }
+    .gthumb { cursor:pointer; border:1px solid var(--border); border-radius:0; overflow:hidden; background:var(--card2); transition:transform .15s; }
+    .gthumb:hover { transform:scale(1.03); border-color:var(--accent); }
+    .gthumb img { width:100%; height:90px; object-fit:cover; display:block; }
+    .gname { font-size:.7rem; color:var(--muted); padding:4px 6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .lightbox { position:fixed; inset:0; background:rgba(0,0,0,.85); display:none; align-items:center; justify-content:center; z-index:2000; padding:20px; flex-direction:column; gap:10px; }
+    .drawer-backdrop { position:fixed; inset:0; background:rgba(0,0,0,.4); display:none; z-index:1500; }
+    .drawer-backdrop.open { display:block; }
+    .drawer { position:fixed; top:0; right:0; height:100vh; width:420px; max-width:92vw; background:var(--card); border-left:1px solid var(--border); transform:translateX(100%); transition:transform .25s ease; z-index:1600; display:flex; flex-direction:column; }
+    .drawer-left { left:0; right:auto; border-left:none; border-right:1px solid var(--border); transform:translateX(-100%); }
+    .drawer-left.open { transform:translateX(0); }
+    .login-overlay { position:fixed; inset:0; background:var(--navy); display:flex; align-items:center; justify-content:center; z-index:3000; }
+    .login-overlay.hidden { display:none; }
+    body.pre-auth header, body.pre-auth main { visibility:hidden; }
+    .login-card { background:var(--card); border:1px solid var(--border); border-radius:0; padding:32px; width:340px; max-width:92vw; box-shadow:0 20px 60px rgba(0,0,0,.3); border-top:4px solid var(--accent); }
+    .login-card h2 { margin:0 0 6px; font-size:1.2rem; color:var(--navy); font-family:'Tomorrow',sans-serif; }
+    .login-card .sub { color:var(--muted); font-size:.85rem; margin-bottom:20px; }
+    .login-card input { width:100%; box-sizing:border-box; padding:10px 12px; border-radius:0; border:1px solid var(--border); background:var(--card2); color:var(--text); margin-bottom:12px; font-size:.95rem; }
+    .login-card button { width:100%; padding:10px; font-size:.95rem; border-radius:0; }
+    .login-error { color:var(--red); font-size:.85rem; margin:-6px 0 10px; min-height:1.2em; }
+    .login-user { color:var(--green); font-size:.78rem; text-align:center; margin-top:14px; }
+    .drawer.open { transform:translateX(0); }
+    .drawer header { padding:14px 16px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; background:var(--navy); color:#fff; }
+    .drawer header h2 { margin:0; font-size:1rem; color:#fff; font-family:'Tomorrow',sans-serif; }
+    .drawer .close { background:var(--accent); color:#fff; border:none; padding:4px 10px; border-radius:0; cursor:pointer; }
+    .drawer .body { padding:14px 16px; overflow:auto; flex:1; }
+    .lightbox.open { display:flex; }
+    .lightbox img { max-width:90vw; max-height:75vh; object-fit:contain; border-radius:0; }
+    .lightbox .lb-bar { display:flex; gap:10px; align-items:center; color:#fff; }
+    .lightbox button { background:var(--accent); color:#fff; border:none; padding:6px 12px; border-radius:0; cursor:pointer; }
+    .lightbox .lb-name { font-size:.85rem; color:#cbd5e1; max-width:60vw; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    footer.az-footer { background:var(--navy); color:#fff; padding:18px 24px; margin-top:24px; font-size:.8rem; }
+    footer.az-footer .row { display:flex; flex-wrap:wrap; gap:16px; align-items:center; justify-content:space-between; max-width:1500px; margin:0 auto; }
+    footer.az-footer a { color:#EA4F24; }
+    footer.az-footer a:hover { color:#fff; }
+    footer.az-footer .links { display:flex; gap:14px; flex-wrap:wrap; }
+    footer.az-footer .brand { display:flex; align-items:center; gap:10px; }
+    @media print {
+      body { background:#fff; }
+      header .controls, .controls, #loading, .modal-backdrop, .drawer, .drawer-backdrop, .lightbox, .login-overlay { display:none !important; }
+      main { padding:0; }
+      .card { break-inside: avoid; }
+      .table-wrap { max-height:none; overflow:visible; }
+    }
+  </style>
+</head>
+<body class="pre-auth">
+  <header>
+    <div style="display:flex;align-items:center;gap:14px;">
+      <img src="https://www.azi.com.br/wp-content/uploads/2023/06/logo_az_white.svg" alt="AZ Tecnologia de gestão" style="height:34px;width:auto;" />
+      <div>
+        <h1 style="font-size:1.15rem;">📊 Dashboard — Chamados</h1>
+        <div class="meta" id="scopeMeta">Selecione um espaço do Jira</div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+      <label for="projectSearch" class="meta" style="margin:0;">Espaço:</label>
+      <input id="projectSearch" type="search" placeholder="Buscar espaço..." style="padding:6px 10px;border-radius:0;border:1px solid var(--border);background:var(--card);color:var(--text);max-width:180px;" />
+      <select id="projectSelect" style="padding:6px 10px;border-radius:0;border:1px solid var(--border);background:var(--card);color:var(--text);max-width:260px;">
+        <option value="TO">Tocantins (TO)</option>
+      </select>
+      <label style="display:flex;align-items:center;gap:4px;cursor:pointer;" class="meta"><input type="checkbox" id="openOnlyChk" checked /> Apenas abertos</label>
+      <span class="meta" id="userBadge" style="color:var(--accent);font-weight:600;"></span>
+      <button class="secondary" id="logoutBtn" title="Sair">Sair</button>
+      <div class="meta" id="fetchedAt">—</div>
+    </div>
+  </header>
+  <main>
+    <div class="controls">
+      <button id="refresh">↻ Atualizar</button>
+      <button class="secondary" id="toggleTable">Mostrar/Ocultar tabela</button>
+      <button class="secondary" id="copyApi">Copiar URL da API</button>
+      <button class="secondary" id="exportPdf">📄 Exportar PDF</button>
+      <span class="meta" id="hint" style="margin-left:auto;"></span>
+    </div>
+    <div id="errorBox"></div>
+    <div id="loading">Carregando dados...</div>
+
+    <div id="content" style="display:none;">
+      <div class="kpis" id="kpis"></div>
+
+      <div class="grid">
+        <div class="card col2"><h3>Por Status</h3><div class="chart-box"><canvas id="chartStatus"></canvas></div></div>
+        <div class="card col2"><h3>Por Prioridade</h3><div class="chart-box"><canvas id="chartPrio"></canvas></div></div>
+        <div class="card col2"><h3>Por Tipo</h3><div class="chart-box"><canvas id="chartType"></canvas></div></div>
+        <div class="card col3"><h3>Por Responsável</h3><div class="chart-box tall"><canvas id="chartAssignee"></canvas></div></div>
+        <div class="card col3"><h3>Criados por dia</h3><div class="chart-box tall"><canvas id="chartTimeline"></canvas></div></div>
+        <div class="card wide"><h3>Todos os chamados</h3>
+          <div class="table-wrap" id="tableWrap">
+            <table>
+              <thead><tr><th>Key</th><th>Tipo</th><th>Resumo</th><th>Status</th><th>Prioridade</th><th>Responsável</th><th>Criado</th><th>Atualizado</th></tr></thead>
+              <tbody id="tbody"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card wide"><h3>Fluxo de Atividades (últimos 3 dias)</h3>
+          <div class="activity" id="activityList"><div class="empty">Carregando atividades...</div></div>
+        </div>
+      </div>
+
+    </div>
+    <div class="empty" id="empty" style="display:none;">Nenhum chamado aberto.</div>
+  </main>
+
+  <div class="modal-backdrop" id="modalBackdrop">
+    <div class="modal">
+      <button class="close" id="modalClose">✕</button>
+      <h2 id="modalTitle">Atividades da issue</h2>
+      <div id="modalContent"></div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="xrayBackdrop">
+    <div class="modal xray-modal">
+      <button class="close" id="xrayClose">✕</button>
+      <h2 id="xrayTitle">🔎 Raio-X do chamado</h2>
+      <div id="xrayContent"><div class="empty">Carregando...</div></div>
+      <div style="margin-top:12px; display:flex; gap:8px; justify-content:flex-end;">
+        <button class="secondary" id="xrayCopy">📋 Copiar resumo</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="lightbox" id="lightbox">
+    <img id="lbImg" src="" alt="" />
+    <div class="lb-bar">
+      <button id="lbPrev">◀ Anterior</button>
+      <span class="lb-name" id="lbName"></span>
+      <button id="lbNext">Próximo ▶</button>
+      <button id="lbClose">✕ Fechar</button>
+    </div>
+  </div>
+
+  <div class="login-overlay" id="loginOverlay">
+    <div class="login-card">
+      <h2>🔒 Acesso restrito</h2>
+      <div class="sub">Dashboard — Chamados Jira</div>
+      <input type="text" id="loginUser" placeholder="Usuário" autocomplete="username" />
+      <input type="password" id="loginPass" placeholder="Senha" autocomplete="current-password" />
+      <div class="login-error" id="loginError"></div>
+      <button id="loginBtn">Entrar</button>
+      <div class="login-user">tocantins · operacoes</div>
+    </div>
+  </div>
+
+  <div class="drawer-backdrop" id="drawerBackdrop"></div>
+  <div class="drawer" id="drawer">
+    <header><h2 id="drawerTitle">Histórico da issue</h2><div style="display:flex;gap:6px;"><button class="close" id="xrayBtn" style="background:var(--accent);">🔎 Raio-X</button>
+<button class="close" id="xrayTwgBtn" style="background:var(--secondary);">🔎 TWG</button><button class="close" id="drawerClose">✕</button></div></header>
+    <div class="body" id="drawerContent"></div>
+  </div>
+
+  <div class="drawer drawer-left" id="drawerLeft">
+    <header><h2 id="drawerLeftTitle">Análise do chamado</h2><button class="close" id="drawerLeftClose">✕</button></header>
+    <div class="body" id="drawerLeftContent"></div>
+  </div>
+
+  <script>
+    const API = "/api/chamados/abertos";
+    const charts = {};
+    let data = [];
+    let activityData = [];
+    let currentProject = "TO";
+    let openOnly = true;
+    let session = null; // { username, allowedProjects }
+    function canSeeAll(){ return !!(session && (session.allowedProjects||[]).includes("all")); }
+    function token(){ return localStorage.getItem("tt_token") || ""; }
+    // fetch com autenticacao
+    async function apiFetch(url, opts = {}){
+      const headers = Object.assign({ "ngrok-skip-browser-warning":"true" }, opts.headers || {});
+      const t = token();
+      if (t) headers["Authorization"] = "Bearer " + t;
+      const res = await fetch(url, Object.assign({}, opts, { headers }));
+      if (res.status === 401) { showLogin(); throw new Error("Sessão expirada. Faça login novamente."); }
+      return res;
+    }
+    function showLogin(){
+      document.getElementById("loginOverlay").classList.remove("hidden");
+      document.body.classList.add("pre-auth");
+    }
+    function hideLogin(){
+      document.getElementById("loginOverlay").classList.add("hidden");
+      document.body.classList.remove("pre-auth");
+    }
+    if (window.ChartDataLabels) Chart.register(ChartDataLabels);
+
+    const PALETTE = ["#EA4F24","#002436","#198754","#ffc107","#dc3545","#DC7B52","#575756","#0d6efd","#6f42c1","#20c997","#fd7e14","#6c757d"];
+
+    function fmtDate(s){ if(!s) return "—"; return s.slice(0,10).split("-").reverse().join("/"); }
+    function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c])); }
+    function adfToText(node){
+      if(!node) return "";
+      if(typeof node === "string") return node;
+      if(Array.isArray(node)) return node.map(adfToText).join("");
+      if(node.type === "text") return node.text || "";
+      if(node.type === "hardBreak") return "\n";
+      if(node.type === "mention") return "@" + ((node.attrs && (node.attrs.text || node.attrs.id)) || "");
+      const inner = adfToText(node.content);
+      const blockTypes = new Set(["paragraph","heading","bulletList","orderedList","listItem","blockquote","codeBlock","table","tableRow","panel","rule"]);
+      if(blockTypes.has(node.type)) return inner + "\n";
+      return inner;
+    }
+
+    function groupBy(arr, keyFn){
+      const m = {};
+      arr.forEach(x => { const k = keyFn(x) || "—"; m[k] = (m[k]||0)+1; });
+      return m;
+    }
+    function sortedEntries(m){ return Object.entries(m).sort((a,b)=>b[1]-a[1]); }
+
+    function makeChart(id, type, labels, values, opts={}){
+      const ctx = document.getElementById(id);
+      if(charts[id]) charts[id].destroy();
+      charts[id] = new Chart(ctx, {
+        type,
+        data: {
+          labels,
+          datasets: [{
+            data: values,
+            backgroundColor: (opts.colors || PALETTE).slice(0, values.length),
+            borderColor: "rgba(0,0,0,0)",
+            borderWidth: 1,
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { position: opts.legendPos || "right", labels: { color: "#002436", boxWidth: 12, font: { size: 11 } } },
+            tooltip: { callbacks: { label: (c) => `${c.label}: ${c.parsed} (${(c.parsed/values.reduce((a,b)=>a+b,0)*100).toFixed(1)}%)` } },
+            datalabels: {
+              color: "#002436",
+              font: { weight: "bold", size: 11 },
+              formatter: (v, ctx) => {
+                const total = ctx.dataset.data.reduce((a,b)=>a+b,0);
+                const pct = total ? (v/total*100).toFixed(1) : 0;
+                if (type === "doughnut" || type === "pie") return `${v}\n${pct}%`;
+                return v;
+              },
+              display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0
+            }
+          },
+          ...opts.extra
+        }
+      });
+    }
+
+    function computeKpis(){
+      const total = data.length;
+      const crit = data.filter(d=>d.priority==="Crítica").length;
+      const alta = data.filter(d=>d.priority==="Alta").length;
+      const resp = new Set(data.map(d=>d.assignee?d.assignee.name:"")).size;
+      const now = Date.now();
+      const createdDates = data.map(d=>d.created?new Date(d.created):null).filter(Boolean);
+      const oldest = createdDates.length ? createdDates.reduce((a,b)=>a<b?a:b) : null;
+      const newest = createdDates.length ? createdDates.reduce((a,b)=>a>b?a:b) : null;
+      const daysOld = oldest ? Math.floor((now-oldest.getTime())/86400000) : 0;
+      const daysNew = newest ? Math.floor((now-newest.getTime())/86400000) : 0;
+      let oldestIdx = 0;
+      for (let i=1;i<createdDates.length;i++){ if(createdDates[i] < createdDates[oldestIdx]) oldestIdx=i; }
+      const withoutOldest = createdDates.length > 1 ? createdDates.filter((_,i)=>i!==oldestIdx) : createdDates;
+      const avgDays = withoutOldest.length ? Math.round(withoutOldest.reduce((acc,dt)=>acc+(now-dt.getTime())/86400000,0)/withoutOldest.length) : 0;
+      return { total, crit, alta, resp, daysOld, daysNew, avgDays };
+    }
+    function renderKpis(){
+      const k = computeKpis();
+      document.getElementById("kpis").innerHTML = `
+        <div class="kpi"><div class="n">${k.total}</div><div class="l">Total abertos</div></div>
+        <div class="kpi red"><div class="n">${k.crit}</div><div class="l">Prioridade crítica</div></div>
+        <div class="kpi amber"><div class="n">${k.alta}</div><div class="l">Prioridade alta</div></div>
+        <div class="kpi"><div class="n">${k.resp}</div><div class="l">Responsáveis</div></div>
+        <div class="kpi"><div class="n">${k.daysOld}d</div><div class="l">Mais antigo (dias)</div></div>
+        <div class="kpi green"><div class="n">${k.daysNew}d</div><div class="l">Mais novo (dias)</div></div>
+        <div class="kpi"><div class="n">${k.avgDays}d</div><div class="l">Média dias abertos</div></div>
+      `;
+    }
+
+    function renderCharts(){
+      // Status
+      const st = groupBy(data, d=>d.status);
+      const stE = sortedEntries(st);
+      makeChart("chartStatus","bar", stE.map(e=>e[0]), stE.map(e=>e[1]), { legendPos:"bottom", colors: PALETTE });
+      // click handler para grafico de status
+      if(charts.chartStatus){
+        charts.chartStatus.options.onClick = (evt, elements) => {
+          if(!elements || !elements.length) return;
+          const idx = elements[0].index;
+          const name = stE[idx][0];
+          openStatusDrawer(name);
+        };
+        charts.chartStatus.update();
+      }
+
+      // Prioridade
+      const pr = groupBy(data, d=>d.priority);
+      const prE = sortedEntries(pr);
+      makeChart("chartPrio","doughnut", prE.map(e=>e[0]), prE.map(e=>e[1]), { legendPos:"right" });
+
+      // Tipo
+      const tp = groupBy(data, d=>d.issueType);
+      const tpE = sortedEntries(tp);
+      makeChart("chartType","pie", tpE.map(e=>e[0]), tpE.map(e=>e[1]), { legendPos:"right" });
+
+      // Responsável
+      const asg = groupBy(data, d=>d.assignee?d.assignee.name:"Sem responsável");
+      const asgE = sortedEntries(asg);
+      const ctx = document.getElementById("chartAssignee");
+      if(charts.chartAssignee) charts.chartAssignee.destroy();
+      charts.chartAssignee = new Chart(ctx, {
+        type:"bar",
+        data:{ labels: asgE.map(e=>e[0]), datasets:[{ data: asgE.map(e=>e[1]), backgroundColor: PALETTE, borderRadius:4 }] },
+        options:{
+          indexAxis:"y", responsive:true, maintainAspectRatio:false,
+          onClick: (evt, elements) => {
+            if(!elements || !elements.length) return;
+            const idx = elements[0].index;
+            const name = asgE[idx][0];
+            openAssigneeDrawer(name);
+          },
+          plugins:{ legend:{display:false}, datalabels:{ color:"#002436", font:{weight:"bold",size:11}, anchor:"end", align:"end", formatter:(v)=>v } },
+          scales:{ x:{ ticks:{color:"#002436"}, grid:{color:"#dee2e6"} }, y:{ ticks:{color:"#002436", font:{size:11}}, grid:{display:false} } }
+        }
+      });
+
+      // Timeline: criados por dia
+      const byDay = {};
+      data.forEach(d=>{
+        if(!d.created) return;
+        const day = d.created.slice(0,10);
+        byDay[day] = (byDay[day]||0)+1;
+      });
+      const days = Object.keys(byDay).sort();
+      // cumulative
+      let cum = 0;
+      const cumVals = days.map(d=>{ cum += byDay[d]; return cum; });
+      if(charts.chartTimeline) charts.chartTimeline.destroy();
+      charts.chartTimeline = new Chart(document.getElementById("chartTimeline"), {
+        type:"line",
+        data:{ labels: days.map(d=>d.slice(5).split("-").reverse().join("/")), datasets:[
+          { label:"Criados no dia", data: days.map(d=>byDay[d]), borderColor:"#EA4F24", backgroundColor:"rgba(234,79,36,.2)", tension:.3, fill:true },
+          { label:"Acumulado", data: cumVals, borderColor:"#002436", backgroundColor:"rgba(0,36,54,.1)", tension:.3, yAxisID:"y1" }
+        ]},
+        options:{
+          responsive:true, maintainAspectRatio:false,
+          plugins:{ legend:{ labels:{color:"#002436", boxWidth:12, font:{size:11} } }, datalabels:{ display:false } },
+          scales:{
+            x:{ ticks:{color:"#002436", font:{size:10}}, grid:{color:"#dee2e6"} },
+            y:{ ticks:{color:"#002436"}, grid:{color:"#dee2e6"}, beginAtZero:true },
+            y1:{ position:"right", ticks:{color:"#002436"}, grid:{display:false}, beginAtZero:true }
+          }
+        }
+      });
+    }
+
+    function sortByRecent(arr){
+      return [...arr].sort((a,b)=>{
+        const da = new Date(a.updated || a.created || 0).getTime();
+        const db = new Date(b.updated || b.created || 0).getTime();
+        return db - da; // mais recentes primeiro
+      });
+    }
+    function renderTable(){
+      const tbody = document.getElementById("tbody");
+      tbody.innerHTML = sortByRecent(data).map(d => `
+        <tr>
+          <td><span class="act-key keylink" data-key="${d.key}">${d.key}</span> <a href="${d.url}" target="_blank" title="Abrir no Jira" style="font-size:.75rem;">↗</a></td>
+          <td><span class="badge">${d.issueType||"—"}</span></td>
+          <td>${escapeHtml(d.summary||"")}</td>
+          <td>${d.status||"—"}</td>
+          <td><span class="badge prio-${d.priority}">${d.priority||"—"}</span></td>
+          <td>${d.assignee ? escapeHtml(d.assignee.name) : "—"}</td>
+          <td>${fmtDate(d.created)}</td>
+          <td>${fmtDate(d.updated)}</td>
+        </tr>`).join("");
+    }
+
+    function activitiesLast3Days(events){
+      const now = new Date();
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const threeDaysAgo = new Date(todayStart.getTime() - 2*86400000);
+      const tomorrowStart = new Date(todayStart.getTime() + 86400000);
+      return (events||[]).filter(e => {
+        if (!e.created) return false;
+        const d = new Date(e.created);
+        return d >= threeDaysAgo && d < tomorrowStart;
+      });
+    }
+    function renderActivity(events){
+      const el = document.getElementById("activityList");
+      if(!events || events.length===0){ el.innerHTML = '<div class="empty">Nenhuma atividade recente.</div>'; return; }
+      el.innerHTML = events.map(e => {
+        const date = new Date(e.created).toLocaleString("pt-BR");
+        if(e.type === "comment"){
+          return `<div class="act-item">
+            <div class="act-dot comment"></div>
+            <div class="act-body">
+              <div><span class="act-key" data-key="${e.issueKey}">${e.issueKey}</span> · comentário de <b>${escapeHtml(e.author||"—")}</b></div>
+              <div class="act-text">${escapeHtml(e.body||"")}</div>
+              <div class="act-meta">${date} · ${escapeHtml(e.issueSummary||"")}</div>
+            </div>
+          </div>`;
+        }
+        // change
+        const field = e.field || "";
+        let desc = "";
+        if(field.toLowerCase().includes("status")){
+          desc = `status: <s>${escapeHtml(e.from||"—")}</s> → <b>${escapeHtml(e.to||"—")}</b>`;
+        } else if(field.toLowerCase().includes("assignee")){
+          desc = `responsável: ${escapeHtml(e.from||"—")} → <b>${escapeHtml(e.to||"—")}</b>`;
+        } else {
+          desc = `${escapeHtml(field)}: ${escapeHtml(e.from||"—")} → <b>${escapeHtml(e.to||"—")}</b>`;
+        }
+        return `<div class="act-item">
+          <div class="act-dot change"></div>
+          <div class="act-body">
+            <div><span class="act-key" data-key="${e.issueKey}">${e.issueKey}</span> · ${desc}</div>
+            <div class="act-meta">${escapeHtml(e.author||"—")} · ${date}</div>
+          </div>
+        </div>`;
+      }).join("");
+      // wire clicks
+      el.querySelectorAll(".act-key").forEach(n => {
+        n.addEventListener("click", () => openIssueDrawer(n.getAttribute("data-key")));
+      });
+    }
+
+    function openStatusDrawer(name){
+      const drawer = document.getElementById("drawer");
+      const backdrop = document.getElementById("drawerBackdrop");
+      const title = document.getElementById("drawerTitle");
+      const content = document.getElementById("drawerContent");
+      title.textContent = `Chamados — ${name}`;
+      const list = data.filter(d => (d.status||"—") === name);
+      let html = `<div class="act-meta" style="margin-bottom:10px;">${list.length} chamado(s) com este status</div>`;
+      if(list.length===0){ content.innerHTML = html + '<div class="empty">Nenhum chamado.</div>'; drawer.classList.add("open"); backdrop.classList.add("open"); return; }
+      list.forEach(d => {
+        html += `<div class="hist" style="cursor:pointer;" data-key="${d.key}">
+          <div><span class="act-key" style="font-weight:700;">${d.key}</span> <span class="badge prio-${d.priority}">${d.priority||"—"}</span></div>
+          <div style="font-size:.85rem;margin-top:2px;">${escapeHtml(d.summary||"")}</div>
+          <div class="act-meta">${d.assignee?escapeHtml(d.assignee.name):"—"} · ${fmtDate(d.updated)}</div>
+        </div>`;
+      });
+      content.innerHTML = html;
+      content.querySelectorAll(".hist").forEach(el => {
+        el.addEventListener("click", () => openIssueDrawer(el.getAttribute("data-key")));
+      });
+      drawer.classList.add("open");
+      backdrop.classList.add("open");
+    }
+
+    function openAssigneeDrawer(name){
+      const drawer = document.getElementById("drawer");
+      const backdrop = document.getElementById("drawerBackdrop");
+      const title = document.getElementById("drawerTitle");
+      const content = document.getElementById("drawerContent");
+      title.textContent = `Chamados — ${name}`;
+      const list = data.filter(d => (d.assignee ? d.assignee.name : "Sem responsável") === name);
+      let html = `<div class="act-meta" style="margin-bottom:10px;">${list.length} chamado(s) atribuído(s)</div>`;
+      if(list.length===0){ content.innerHTML = html + '<div class="empty">Nenhum chamado.</div>'; drawer.classList.add("open"); backdrop.classList.add("open"); return; }
+      list.forEach(d => {
+        const prioClass = `prio-${d.priority}`;
+        html += `<div class="hist" style="cursor:pointer;" data-key="${d.key}">
+          <div><span class="act-key" style="font-weight:700;">${d.key}</span> <span class="badge prio-${d.priority}">${d.priority||"—"}</span></div>
+          <div style="font-size:.85rem;margin-top:2px;">${escapeHtml(d.summary||"")}</div>
+          <div class="act-meta">${escapeHtml(d.status||"—")} · ${fmtDate(d.updated)}</div>
+        </div>`;
+      });
+      content.innerHTML = html;
+      content.querySelectorAll(".hist").forEach(el => {
+        el.addEventListener("click", () => openIssueDrawer(el.getAttribute("data-key")));
+      });
+      drawer.classList.add("open");
+      backdrop.classList.add("open");
+    }
+
+    function renderAnalysis(el, analysis, key){
+      if(!analysis){ el.innerHTML = '<div class="empty">Não foi possível analisar.</div>'; return; }
+      const intent = analysis.intent || {};
+      const conv = analysis.conversation || [];
+      const trans = analysis.transitions || [];
+      const atts = analysis.attachments || [];
+      let html = "";
+      // Intencao do cliente
+      html += `<div class="section"><h4>🎯 Intenção do cliente</h4>`;
+      html += `<div class="hist"><div><b>Resumo:</b> ${escapeHtml(intent.summary||"—")}</div></div>`;
+      if(intent.reporter) html += `<div class="hist"><div><b>Cliente:</b> ${escapeHtml(intent.reporter)}</div></div>`;
+      if(intent.assignee) html += `<div class="hist"><div><b>Responsável:</b> ${escapeHtml(intent.assignee)}</div></div>`;
+      html += `<div class="hist"><div><b>Status:</b> ${escapeHtml(intent.status||"—")} · <b>Prioridade:</b> ${escapeHtml(intent.priority||"—")}</div></div>`;
+      if(intent.description) html += `<div class="hist"><div><b>Descrição:</b><div class="act-meta" style="white-space:pre-wrap;margin-top:4px;">${escapeHtml(String(intent.description).slice(0,1200))}</div></div></div>`;
+      if(intent.firstClientMessage) html += `<div class="hist"><div><b>Primeira mensagem do cliente:</b><div class="act-meta" style="white-space:pre-wrap;margin-top:4px;">${escapeHtml(String(intent.firstClientMessage).slice(0,1200))}</div></div></div>`;
+      html += `</div>`;
+      // Conversa com suporte
+      html += `<div class="section"><h4>💬 Conversa com o suporte (${conv.length})</h4>`;
+      if(conv.length===0) html += '<div class="empty">Sem comentários.</div>';
+      conv.forEach(c => {
+        const roleColor = c.role === "cliente" ? "var(--accent)" : "var(--accent2)";
+        html += `<div class="cmt">
+          <div><span class="author" style="color:${roleColor};">${escapeHtml(c.author)}</span> <span class="badge" style="font-size:.65rem;">${c.role}</span> <span class="date">${new Date(c.date).toLocaleString("pt-BR")}</span></div>
+          <div class="body">${escapeHtml((c.body||"").slice(0,600))}</div>
+        </div>`;
+      });
+      html += `</div>`;
+      // Transicoes
+      if(trans.length){
+        html += `<div class="section"><h4>🔄 Transições (${trans.length})</h4>`;
+        trans.forEach(t => {
+          html += `<div class="hist"><div><b>${escapeHtml(t.field)}</b>: ${escapeHtml(t.from||"—")} → <b>${escapeHtml(t.to||"—")}</b></div><div class="act-meta">${escapeHtml(t.author||"—")} · ${new Date(t.date).toLocaleString("pt-BR")}</div></div>`;
+        });
+        html += `</div>`;
+      }
+      // Anexos
+      if(atts.length){
+        html += `<div class="section"><h4>📎 Anexos (${atts.length})</h4>`;
+        atts.forEach(a => {
+          const url = `/api/attachment/${a.id}`;
+          if((a.mimeType||"").startsWith("image/")){
+            html += `<div class="hist"><img src="/api/attachment/${a.id}/thumbnail" alt="${escapeHtml(a.filename)}" style="max-width:100%;max-height:120px;border-radius:4px;" /> <div class="act-meta">${escapeHtml(a.filename)}</div></div>`;
+          } else {
+            html += `<div class="hist"><a href="${url}" target="_blank">📎 ${escapeHtml(a.filename)}</a></div>`;
+          }
+        });
+        html += `</div>`;
+      }
+      el.innerHTML = html;
+    }
+
+    async function openIssueDrawer(key){
+      const drawer = document.getElementById("drawer");
+      const drawerLeft = document.getElementById("drawerLeft");
+      const backdrop = document.getElementById("drawerBackdrop");
+      const title = document.getElementById("drawerTitle");
+      const content = document.getElementById("drawerContent");
+      const titleL = document.getElementById("drawerLeftTitle");
+      const contentL = document.getElementById("drawerLeftContent");
+      title.textContent = `Histórico — ${key}`;
+      titleL.textContent = `Análise — ${key}`;
+      window.__currentIssueKey = key;
+      content.innerHTML = '<div class="empty">Carregando...</div>';
+      contentL.innerHTML = '<div class="empty">Analisando chamado...</div>';
+      drawer.classList.add("open");
+      drawerLeft.classList.add("open");
+      backdrop.classList.add("open");
+      try {
+        const [rIssue, rAnalysis] = await Promise.all([
+          apiFetch(`/api/issue/${encodeURIComponent(key)}`),
+          apiFetch(`/api/issue/${encodeURIComponent(key)}/analysis`),
+        ]);
+        const j = await rIssue.json();
+        const ja = await rAnalysis.json();
+        if(!j.success) throw new Error(j.error);
+        const d = j.data;
+        const analysis = (ja && ja.success) ? ja.data : null;
+        const histories = (d.changelog?.histories || []).slice().reverse();
+        let html = "";
+        // Histórico de mudanças
+        html += `<div class="section"><h4>Histórico de mudanças (${histories.length})</h4>`;
+        if(histories.length===0) html += '<div class="empty">Sem histórico.</div>';
+        histories.forEach(h => {
+          (h.items||[]).forEach(it => {
+            html += `<div class="hist">
+              <div><b>${escapeHtml(it.field)}</b>: ${escapeHtml(it.fromString||"—")} → <b>${escapeHtml(it.toString||"—")}</b></div>
+              <div class="act-meta">${escapeHtml(h.author?.displayName||"—")} · ${new Date(h.created).toLocaleString("pt-BR")}</div>
+            </div>`;
+          });
+        });
+        html += `</div>`;
+        // Anexos
+        const attachments = d.issue?.attachments || d.attachments || [];
+        const images = attachments.filter(a => (a.mimeType||"").startsWith("image/"));
+        html += `<div class="section"><h4>Anexos (${attachments.length})</h4>`;
+        if(attachments.length===0) html += '<div class="empty">Sem anexos.</div>';
+        // Galeria de imagens (miniaturas)
+        if(images.length){
+          html += `<div class="gallery" id="galleryBox">`;
+          images.forEach((a, idx) => {
+            const thumb = `/api/attachment/${a.id}/thumbnail`;
+            const full = `/api/attachment/${a.id}`;
+            html += `<div class="gthumb" data-idx="${idx}" data-src="${full}" data-name="${escapeHtml(a.filename)}">
+              <img src="${thumb}" alt="${escapeHtml(a.filename)}" loading="lazy" />
+              <div class="gname">${escapeHtml(a.filename)}</div>
+            </div>`;
+          });
+          html += `</div>`;
+        }
+        // Arquivos não-imagens
+        const files = attachments.filter(a => !(a.mimeType||"").startsWith("image/"));
+        files.forEach(a => {
+          const url = `/api/attachment/${a.id}`;
+          html += `<div class="hist"><a href="${url}" target="_blank" download="${escapeHtml(a.filename)}">📎 ${escapeHtml(a.filename)}</a> <span class="act-meta">(${escapeHtml(a.mimeType||"arquivo")} · ${(a.size/1024).toFixed(1)} KB)</span></div>`;
+        });
+        html += `</div>`;
+        // guardar lista de imagens para lightbox
+        window.__galleryImages = images.map(a => ({ src: `/api/attachment/${a.id}`, name: a.filename }));
+        // Comentários
+        const comments = d.comments || [];
+        html += `<div class="section"><h4>Comentários (${comments.length})</h4>`;
+        if(comments.length===0) html += '<div class="empty">Sem comentários.</div>';
+        comments.forEach(c => {
+          html += `<div class="cmt">
+            <div><span class="author">${escapeHtml(c.author?.name||"—")}</span> <span class="date">${new Date(c.created).toLocaleString("pt-BR")}</span></div>
+            <div class="body">${escapeHtml(c.body||"")}</div>
+          </div>`;
+        });
+        html += `</div>`;
+        // Worklog link
+        html += `<div class="section"><h4>Worklogs</h4><div class="act-meta">Carregando...</div></div>`;
+        content.innerHTML = html;
+        // Render analise na barra lateral esquerda
+        renderAnalysis(contentL, analysis, key);
+        // load worklogs async
+        apiFetch(`/api/issue/${encodeURIComponent(key)}/worklog`)
+          .then(r=>r.json()).then(j=>{
+            const wls = j.data || [];
+            const sec = content.querySelector(".section:last-child");
+            if(sec){
+              let whtml = `<h4>Worklogs (${wls.length})</h4>`;
+              if(wls.length===0) whtml += '<div class="empty">Sem worklogs.</div>';
+              wls.forEach(w => {
+                whtml += `<div class="hist"><div><b>${escapeHtml(w.author?.name||"—")}</b> · ${escapeHtml(w.timeSpent||"—")}</div><div class="act-meta">${w.started?new Date(w.started).toLocaleString("pt-BR"):""}</div></div>`;
+              });
+              sec.innerHTML = whtml;
+            }
+          }).catch(()=>{});
+      } catch(e){
+        content.innerHTML = `<div class="error">Erro: ${escapeHtml(e.message)}</div>`;
+      }
+    }
+
+    window.__currentIssueKey = null;
+    async function openXray(key){
+      if(!key) return;
+      const backdrop = document.getElementById("xrayBackdrop");
+      const content = document.getElementById("xrayContent");
+      const title = document.getElementById("xrayTitle");
+      title.textContent = "🔎 Raio-X — " + key;
+      content.innerHTML = '<div class="empty">Carregando Raio-X...</div>';
+      backdrop.classList.add("open");
+      let textSummary = "";
+      try {
+        const [rIssue, rAnalysis, rWl] = await Promise.all([
+          apiFetch("/api/issue/" + encodeURIComponent(key)),
+          apiFetch("/api/issue/" + encodeURIComponent(key) + "/analysis"),
+          apiFetch("/api/issue/" + encodeURIComponent(key) + "/worklog"),
+        ]);
+        const j = await rIssue.json();
+        const ja = await rAnalysis.json();
+        const jw = await rWl.json();
+        if(!j.success) throw new Error(j.error);
+        const d = j.data;
+        const issue = d.issue || {};
+        const analysis = (ja && ja.success) ? ja.data : null;
+        const worklogs = (jw && jw.success) ? (jw.data || []) : [];
+        const comments = d.comments || [];
+        const histories = (d.changelog && d.changelog.histories ? d.changelog.histories : []).slice().sort((a,b)=>new Date(a.created)-new Date(b.created));
+        const attachments = issue.attachments || d.attachments || [];
+        const adfToTextFn = (typeof adfToText === "function") ? adfToText : null;
+
+        textSummary = "RAIO-X " + key + "\\n" + "=".repeat(60) + "\\n";
+        textSummary += "Resumo: " + (issue.summary||"—") + "\\n";
+        textSummary += "Status: " + (issue.status||"—") + " | Prioridade: " + (issue.priority||"—") + " | Tipo: " + (issue.issueType||"—") + "\\n";
+        textSummary += "Responsável: " + (issue.assignee?issue.assignee.name:"—") + " | Relator: " + (issue.reporter?issue.reporter.name:"—") + "\\n";
+        textSummary += "Criado: " + (issue.created?new Date(issue.created).toLocaleString("pt-BR"):"—") + " | Atualizado: " + (issue.updated?new Date(issue.updated).toLocaleString("pt-BR"):"—") + "\\n";
+        textSummary += "Resolução: " + (issue.resolution||"—") + " | Projeto: " + (issue.project?issue.project.key+" - "+issue.project.name:"—") + "\\n";
+        if (issue.description) {
+          const dt = typeof issue.description === "string" ? issue.description : (adfToTextFn ? adfToTextFn(issue.description) : JSON.stringify(issue.description));
+          textSummary += "\\nDescrição:\\n" + dt + "\\n";
+        }
+
+        const esc2 = escapeHtml;
+        let html = "";
+        html += "<div class=\"section\"><h4>Dados do chamado</h4>";
+        html += "<div class=\"kv\"><div>Chave</div><div><b>" + esc2(key) + "</b></div>";
+        html += "<div>Resumo</div><div>" + esc2(issue.summary||"—") + "</div>";
+        html += "<div>Status</div><div>" + esc2(issue.status||"—") + "</div>";
+        html += "<div>Prioridade</div><div>" + esc2(issue.priority||"—") + "</div>";
+        html += "<div>Tipo</div><div>" + esc2(issue.issueType||"—") + "</div>";
+        html += "<div>Responsável</div><div>" + esc2(issue.assignee?issue.assignee.name:"—") + "</div>";
+        html += "<div>Relator</div><div>" + esc2(issue.reporter?issue.reporter.name:"—") + "</div>";
+        html += "<div>Criado</div><div>" + (issue.created?new Date(issue.created).toLocaleString("pt-BR"):"—") + "</div>";
+        html += "<div>Atualizado</div><div>" + (issue.updated?new Date(issue.updated).toLocaleString("pt-BR"):"—") + "</div>";
+        html += "<div>Resolução</div><div>" + esc2(issue.resolution||"—") + "</div>";
+        html += "<div>Projeto</div><div>" + esc2(issue.project?issue.project.key+" - "+issue.project.name:"—") + "</div>";
+        html += "<div>Anexos</div><div>" + attachments.length + "</div></div>";
+        if (issue.description) {
+          const descText = typeof issue.description === "string" ? issue.description : (adfToTextFn ? adfToTextFn(issue.description) : JSON.stringify(issue.description));
+          html += "<div style=\"margin-top:8px;\"><b>Descrição:</b><div style=\"white-space:pre-wrap;word-break:break-word;margin-top:4px;font-size:.85rem;\">" + esc2(descText) + "</div></div>";
+        }
+        html += "</div>";
+
+        if (analysis && analysis.intent) {
+          const it = analysis.intent;
+          html += "<div class=\"section\"><h4>🎯 Intenção do cliente</h4>";
+          html += "<div class=\"kv\"><div>Relator</div><div>" + esc2(it.reporter||"—") + "</div>";
+          html += "<div>Primeira msg</div><div style=\"white-space:pre-wrap;\">" + esc2(it.firstClientMessage||"—") + "</div></div></div>";
+          textSummary += "\\nINTENÇÃO DO CLIENTE:\\n" + (it.firstClientMessage||"—") + "\\n";
+        }
+
+        const transitions = (analysis && analysis.transitions) ? analysis.transitions : [];
+        if (transitions.length) {
+          textSummary += "\\nTRANSIÇÕES:\\n";
+          html += "<div class=\"section\"><h4>🔄 Transições (" + transitions.length + ")</h4><div class=\"timeline\">";
+          transitions.forEach(t => {
+            html += "<div class=\"ev\"><b>" + esc2(t.field) + "</b>: " + esc2(t.from||"—") + " → <b>" + esc2(t.to||"—") + "</b><div class=\"act-meta\">" + esc2(t.author||"—") + " · " + (t.date?new Date(t.date).toLocaleString("pt-BR"):"") + "</div></div>";
+            textSummary += "- " + t.field + ": " + (t.from||"—") + " → " + (t.to||"—") + " (" + (t.author||"—") + ", " + (t.date?new Date(t.date).toLocaleString("pt-BR"):"") + ")\\n";
+          });
+          html += "</div></div>";
+        } else if (histories.length) {
+          textSummary += "\\nHISTÓRICO DE MUDANÇAS (" + histories.length + "):\\n";
+          html += "<div class=\"section\"><h4>🔄 Histórico de mudanças (" + histories.length + ")</h4><div class=\"timeline\">";
+          histories.forEach(h => {
+            (h.items||[]).forEach(it => {
+              html += "<div class=\"ev\"><b>" + esc2(it.field) + "</b>: " + esc2(it.fromString||"—") + " → <b>" + esc2(it.toString||"—") + "</b><div class=\"act-meta\">" + esc2(h.author && h.author.displayName?h.author.displayName:"—") + " · " + new Date(h.created).toLocaleString("pt-BR") + "</div></div>";
+              textSummary += "- " + it.field + ": " + (it.fromString||"—") + " → " + (it.toString||"—") + " (" + (h.author && h.author.displayName?h.author.displayName:"—") + ", " + new Date(h.created).toLocaleString("pt-BR") + ")\\n";
+            });
+          });
+          html += "</div></div>";
+        }
+
+        const conv = (analysis && analysis.conversation) ? analysis.conversation : [];
+        const listComments = conv.length ? conv : comments.map(c=>({author:c.author?c.author.name:"—", role:"—", date:c.created, body:c.body}));
+        if (listComments.length) {
+          textSummary += "\\nCOMENTÁRIOS (" + listComments.length + "):\\n";
+          html += "<div class=\"section\"><h4>💬 Comentários (" + listComments.length + ")</h4>";
+          listComments.forEach(c => {
+            html += "<div class=\"cmt\"><div><span class=\"author\">" + esc2(c.author||"—") + "</span> <span class=\"date\">" + (c.date?new Date(c.date).toLocaleString("pt-BR"):"") + "</span>" + (c.role && c.role!=="—"? " <span class=\"badge\">" + esc2(c.role) + "</span>":"") + "</div><div class=\"body\">" + esc2(c.body||"") + "</div></div>";
+            textSummary += "[" + (c.date?new Date(c.date).toLocaleString("pt-BR"):"") + "] " + (c.author||"—") + ": " + String(c.body||"").slice(0,300) + "\\n";
+          });
+          html += "</div>";
+        }
+
+        if (worklogs.length) {
+          textSummary += "\\nWORKLOGS (" + worklogs.length + "):\\n";
+          html += "<div class=\"section\"><h4>⏱ Worklogs (" + worklogs.length + ")</h4>";
+          worklogs.forEach(w => {
+            html += "<div class=\"hist\"><div><b>" + esc2(w.author && w.author.name?w.author.name:"—") + "</b> · " + esc2(w.timeSpent||"—") + "</div><div class=\"act-meta\">" + (w.started?new Date(w.started).toLocaleString("pt-BR"):"") + "</div>" + (w.comment?"<div style=\"font-size:.8rem;margin-top:4px;\">" + esc2(w.comment) + "</div>":"") + "</div>";
+            textSummary += "- " + (w.author && w.author.name?w.author.name:"—") + ": " + (w.timeSpent||"—") + " (" + (w.started?new Date(w.started).toLocaleString("pt-BR"):"") + ") " + (w.comment||"") + "\\n";
+          });
+          html += "</div>";
+        }
+
+        if (attachments.length) {
+          textSummary += "\\nANEXOS (" + attachments.length + "):\\n";
+          html += "<div class=\"section\"><h4>📎 Anexos (" + attachments.length + ")</h4>";
+          attachments.forEach(a => {
+            html += "<div class=\"hist\"><a href=\"/api/attachment/" + a.id + "\" target=\"_blank\">" + esc2(a.filename) + "</a> <span class=\"act-meta\">(" + esc2(a.mimeType||"arquivo") + " · " + ((a.size||0)/1024).toFixed(1) + " KB)</span></div>";
+            textSummary += "- " + a.filename + " (" + (a.mimeType||"arquivo") + ")\\n";
+          });
+          html += "</div>";
+        }
+
+        content.innerHTML = html;
+        window.__xraySummary = textSummary;
+      } catch(e){
+        content.innerHTML = "<div class=\"error\">Erro ao gerar Raio-X: " + esc2(e.message) + "</div>";
+        window.__xraySummary = "";
+      }
+    }
+    async function openXrayTwg(key){
+      if(!key) return;
+      const backdrop = document.getElementById("xrayBackdrop");
+      const content = document.getElementById("xrayContent");
+      const title = document.getElementById("xrayTitle");
+      title.textContent = "Raio-X TWG - " + key;
+      content.innerHTML = '<div class="empty">Carregando Raio-X TWG...</div>';
+      backdrop.classList.add("open");
+      let textSummary = "";
+      try {
+        const [rIssue, rAnalysis, rWl, rCmt] = await Promise.all([
+          apiFetch("/api/issue/" + encodeURIComponent(key)),
+          apiFetch("/api/issue/" + encodeURIComponent(key) + "/analysis"),
+          apiFetch("/api/issue/" + encodeURIComponent(key) + "/worklog"),
+          apiFetch("/api/issue/" + encodeURIComponent(key) + "/comments"),
+        ]);
+        const j = await rIssue.json();
+        const ja = await rAnalysis.json();
+        const jw = await rWl.json();
+        const jc = await rCmt.json();
+        if(!j.success) throw new Error(j.error);
+        const d = j.data;
+        const issue = d.issue || {};
+        const analysis = (ja && ja.success) ? ja.data : null;
+        const worklogs = (jw && jw.success) ? (jw.data || []) : [];
+        const comments = (jc && jc.success) ? (jc.data || []) : [];
+        const adfToTextFn = (typeof adfToText === "function") ? adfToText : null;
+
+        textSummary = "RAIO-X TWG " + key + "\\n" + "=".repeat(60) + "\\n";
+        textSummary += "Resumo: " + (issue.summary||"--") + "\\n";
+        textSummary += "Status: " + (issue.status||"--") + " | Prioridade: " + (issue.priority||"--") + " | Tipo: " + (issue.issueType||"--") + "\\n";
+        textSummary += "Responsavel: " + (issue.assignee?issue.assignee.name:"--") + " | Relator: " + (issue.reporter?issue.reporter.name:"--") + "\\n";
+        textSummary += "Criado: " + (issue.created?new Date(issue.created).toLocaleString("pt-BR"):"--") + " | Atualizado: " + (issue.updated?new Date(issue.updated).toLocaleString("pt-BR"):"--") + "\\n";
+        textSummary += "Resolucao: " + (issue.resolution||"--") + " | Projeto: " + (issue.project?issue.project.key+" - "+issue.project.name:"--") + "\\n";
+        if (issue.description) {
+          const dt = typeof issue.description === "string" ? issue.description : (adfToTextFn ? adfToTextFn(issue.description) : JSON.stringify(issue.description));
+          textSummary += "\\nDescricao:\\n" + dt + "\\n";
+        }
+
+        const esc2 = escapeHtml;
+        let html = "";
+        html += "<div class='section'><h4>Dados do chamado</h4>";
+        html += "<div class='kv'><div>Chave</div><div><b>" + esc2(key) + "</b></div>";
+        html += "<div>Resumo</div><div>" + esc2(issue.summary||"--") + "</div>";
+        html += "<div>Status</div><div>" + esc2(issue.status||"--") + "</div>";
+        html += "<div>Prioridade</div><div>" + esc2(issue.priority||"--") + "</div>";
+        html += "<div>Tipo</div><div>" + esc2(issue.issueType||"--") + "</div>";
+        html += "<div>Responsavel</div><div>" + esc2(issue.assignee?issue.assignee.name:"--") + "</div>";
+        html += "<div>Relator</div><div>" + esc2(issue.reporter?issue.reporter.name:"--") + "</div>";
+        html += "<div>Criado</div><div>" + (issue.created?new Date(issue.created).toLocaleString("pt-BR"):"--") + "</div>";
+        html += "<div>Atualizado</div><div>" + (issue.updated?new Date(issue.updated).toLocaleString("pt-BR"):"--") + "</div>";
+        html += "<div>Resolucao</div><div>" + esc2(issue.resolution||"--") + "</div>";
+        html += "<div>Projeto</div><div>" + esc2(issue.project?issue.project.key+" - "+issue.project.name:"--") + "</div>";
+        html += "<div>Anexos</div><div>" + (issue.attachments||[]).length + "</div></div>";
+        if (issue.description) {
+          const descText = typeof issue.description === "string" ? issue.description : (adfToTextFn ? adfToTextFn(issue.description) : JSON.stringify(issue.description));
+          html += "<div style='margin-top:8px;'><b>Descricao:</b><div style='white-space:pre-wrap;word-break:break-word;margin-top:4px;font-size:.85rem;'>" + esc2(descText) + "</div></div>";
+        }
+        html += "</div>";
+
+        if (analysis && analysis.intent) {
+          const it = analysis.intent;
+          html += "<div class='section'><h4>Inencao do cliente</h4>";
+          html += "<div class='kv'><div>Relator</div><div>" + esc2(it.reporter||"--") + "</div>";
+          html += "<div>Primeira msg</div><div style='white-space:pre-wrap;'>" + esc2(it.firstClientMessage||"--") + "</div></div></div>";
+          textSummary += "\\nINENCAO DO CLIENTE:\\n" + (it.firstClientMessage||"--") + "\\n";
+        }
+
+        const transitions = (analysis && analysis.transitions) ? analysis.transitions : [];
+        if (transitions.length) {
+          textSummary += "\\nTRANSICOES:\\n";
+          html += "<div class='section'><h4>Transicoes (" + transitions.length + ")</h4><div class='timeline'>";
+          transitions.forEach(t => {
+            html += "<div class='ev'><b>" + esc2(t.field) + "</b>: " + esc2(t.from||"--") + " -> <b>" + esc2(t.to||"--") + "</b><div class='act-meta'>" + esc2(t.author||"--") + " · " + (t.date?new Date(t.date).toLocaleString("pt-BR"):"") + "</div></div>";
+            textSummary += "- " + t.field + ": " + (t.from||"--") + " -> " + (t.to||"--") + " (" + (t.author||"--") + ", " + (t.date?new Date(t.date).toLocaleString("pt-BR"):"") + ")\\n";
+          });
+          html += "</div></div>";
+        }
+
+        if (worklogs.length) {
+          textSummary += "\\nWORKLOGS (" + worklogs.length + "):\\n";
+          html += "<div class='section'><h4>Worklogs (" + worklogs.length + ")</h4>";
+          worklogs.forEach(w => {
+            html += "<div class='hist'><div><b>" + esc2(w.author && w.author.name?w.author.name:"--") + "</b> · " + esc2(w.timeSpent||"--") + "</div><div class='act-meta'>" + (w.started?new Date(w.started).toLocaleString("pt-BR"):"") + "</div>" + (w.comment?"<div style='font-size:.8rem;margin-top:4px;'>" + esc2(w.comment) + "</div>":"") + "</div>";
+            textSummary += "- " + (w.author && w.author.name?w.author.name:"--") + ": " + (w.timeSpent||"--") + " (" + (w.started?new Date(w.started).toLocaleString("pt-BR"):"") + ") " + (w.comment||"--") + "\\n";
+          });
+          html += "</div>";
+        }
+
+        if (comments.length) {
+          textSummary += "\\nCOMENTARIOS (" + comments.length + "):\\n";
+          html += "<div class='section'><h4>Comentarios (" + comments.length + ")</h4>";
+          comments.forEach(c => {
+            html += "<div class='cmt'><div><span class='author'>" + esc2(c.author||"--") + "</span> <span class='date'>" + (c.created?new Date(c.created).toLocaleString("pt-BR"):"--") + "</span>" + (c.role && c.role!="--"? " <span class='badge'>" + esc2(c.role) + "</span>":"") + "</div><div class='body'>" + esc2(c.body||"") + "</div></div>";
+            textSummary += "[" + (c.created?new Date(c.created).toLocaleString("pt-BR"):"--") + "] " + (c.author||"--") + ": " + String(c.body||"").slice(0,300) + "\\n";
+          });
+          html += "</div>";
+        }
+
+        const attachIss = issue.attachments || [];
+        if (attachIss.length) {
+          textSummary += "\\nANEXOS (" + attachIss.length + "):\\n";
+          html += "<div class='section'><h4>Anexos (" + attachIss.length + ")</h4>";
+          attachIss.forEach(a => {
+            html += "<div class='hist'><a href='/api/attachment/" + a.id + "' target='_blank'>" + esc2(a.filename) + "</a> <span class='act-meta'>(" + esc2(a.mimeType||'arquivo') + " · " + ((a.size||0)/1024).toFixed(1) + " KB)</span></div>";
+            textSummary += "- " + a.filename + " (" + (a.mimeType||"arquivo") + ")\\n";
+          });
+          html += "</div>";
+        }
+
+        content.innerHTML = html;
+        window.__xraySummary = textSummary;
+      } catch(e){
+        content.innerHTML = "<div class='error'>Erro ao gerar Raio-X TWG: " + escapeHtml(e.message) + "</div>";
+        window.__xraySummary = "";
+      }
+    }
+    function closeXray(){ document.getElementById("xrayBackdrop").classList.remove("open"); }
+    document.getElementById("xrayClose").addEventListener("click", closeXray);
+    document.getElementById("xrayBackdrop").addEventListener("click", (e)=>{ if(e.target.id==="xrayBackdrop") closeXray(); });
+    document.getElementById("xrayCopy").addEventListener("click", ()=>{
+      const t = window.__xraySummary || "";
+      if(!t){ alert("Nada para copiar."); return; }
+      navigator.clipboard.writeText(t).then(()=>{ alert("Raio-X copiado para a área de transferência."); }).catch(()=>{ alert("Não foi possível copiar."); });
+    });
+    document.getElementById("xrayBtn").addEventListener("click", ()=>{ const k = window.__currentIssueKey; if(k) openXray(k); else alert("Abra um chamado primeiro."); });
+    document.getElementById("xrayTwgBtn").addEventListener("click", ()=>{ const k = window.__currentIssueKey; if(k) openXrayTwg(k); else alert("Abra um chamado primeiro."); });
+
+    function closeDrawer(){ document.getElementById("drawer").classList.remove("open"); document.getElementById("drawerLeft").classList.remove("open"); document.getElementById("drawerBackdrop").classList.remove("open"); }
+    document.getElementById("drawerClose").addEventListener("click", closeDrawer);
+    document.getElementById("drawerLeftClose").addEventListener("click", closeDrawer);
+    document.getElementById("drawerBackdrop").addEventListener("click", closeDrawer);
+
+    // Lightbox
+    let lbIndex = 0;
+    function lbShow(i){
+      const imgs = window.__galleryImages || [];
+      if(!imgs.length) return;
+      lbIndex = (i + imgs.length) % imgs.length;
+      document.getElementById("lbImg").src = imgs[lbIndex].src;
+      document.getElementById("lbName").textContent = imgs[lbIndex].name;
+      document.getElementById("lightbox").classList.add("open");
+    }
+    document.getElementById("lbPrev").addEventListener("click", ()=> lbShow(lbIndex-1));
+    document.getElementById("lbNext").addEventListener("click", ()=> lbShow(lbIndex+1));
+    document.getElementById("lbClose").addEventListener("click", ()=> document.getElementById("lightbox").classList.remove("open"));
+    document.getElementById("lightbox").addEventListener("click", (e)=>{ if(e.target.id==="lightbox") e.currentTarget.classList.remove("open"); });
+    // delegação de clique nas miniaturas
+    document.getElementById("modalContent").addEventListener("click", (e)=>{
+      const t = e.target.closest(".gthumb");
+      if(t){ lbShow(parseInt(t.getAttribute("data-idx"),10)); }
+    });
+
+    let _ro = null;
+    function setupResizeObserver(){
+      if(_ro) _ro.disconnect();
+      _ro = new ResizeObserver(() => {
+        Object.values(charts).forEach(c => { try { c.resize(); } catch(e){} });
+      });
+      document.querySelectorAll(".chart-box").forEach(el => _ro.observe(el));
+    }
+
+    async function load(refresh=false){
+      document.getElementById("loading").style.display="block";
+      document.getElementById("content").style.display="none";
+      document.getElementById("errorBox").innerHTML="";
+      try {
+        const url = API + "?project=" + encodeURIComponent(currentProject) + "&open=" + (openOnly?"true":"false") + (refresh ? "&refresh=true" : "");
+        const r = await apiFetch(url);
+        const j = await r.json();
+        if(!j.success) throw new Error(j.error || "erro");
+        data = j.data || [];
+        document.getElementById("loading").style.display="none";
+        document.getElementById("fetchedAt").textContent = "Atualizado: " + new Date(j.fetchedAt).toLocaleString("pt-BR");
+        const meta = document.getElementById("scopeMeta");
+        const label = document.getElementById("projectSelect").selectedOptions[0]?.textContent || currentProject;
+        meta.textContent = "Jira · " + label + (openOnly ? " · Apenas abertos" : " · Todos os chamados");
+        if(data.length===0){ document.getElementById("empty").style.display="block"; return; }
+        document.getElementById("content").style.display="block";
+        renderKpis();
+        renderCharts();
+        renderTable();
+        // clickable keys in table
+        document.querySelectorAll("#tbody .keylink").forEach(n => n.addEventListener("click", (e)=>{ e.preventDefault(); openIssueDrawer(n.getAttribute("data-key")); }));
+        // load activity feed
+        apiFetch("/api/atividades?project=" + encodeURIComponent(currentProject) + "&open=" + (openOnly?"true":"false") + "&limit=60")
+          .then(r=>r.json()).then(j=>{ if(j.success){ const recent = activitiesLast3Days(j.data); activityData = recent; renderActivity(recent); } }).catch(()=>{ document.getElementById("activityList").innerHTML='<div class="empty">Falha ao carregar atividades.</div>'; });
+        setupResizeObserver();
+      } catch(e){
+        document.getElementById("loading").style.display="none";
+        document.getElementById("errorBox").innerHTML = `<div class="error">Erro: ${escapeHtml(e.message)}</div>`;
+      }
+    }
+
+    async function exportPdf(){
+      const btn = document.getElementById("exportPdf");
+      const prevText = btn.textContent;
+      btn.disabled = true; btn.textContent = "Gerando PDF...";
+      let reportTop = null, reportTable = null, reportAct = null, actPageContainers = [];
+      try {
+        // Garante que as atividades estejam carregadas antes de montar o PDF
+        try {
+          const ar = await apiFetch("/api/atividades?project=" + encodeURIComponent(currentProject) + "&open=" + (openOnly?"true":"false") + "&limit=60");
+          const aj = await ar.json();
+          if (aj && aj.success) { activityData = activitiesLast3Days(aj.data); renderActivity(activityData); }
+        } catch (ae) { console.warn("Falha ao recarregar atividades para PDF:", ae); }
+        const k = computeKpis();
+        const nowStr = new Date().toLocaleString("pt-BR");
+        const scopeLabel = document.getElementById("scopeMeta").textContent;
+        const fetched = document.getElementById("fetchedAt").textContent;
+        const esc = escapeHtml;
+        const chartIds = [
+          { id: "chartStatus", title: "Por Status" },
+          { id: "chartPrio", title: "Por Prioridade" },
+          { id: "chartType", title: "Por Tipo" },
+          { id: "chartAssignee", title: "Por Responsável" },
+          { id: "chartTimeline", title: "Criados por dia" },
+        ];
+
+        const headerHtml = (subtitle) => `
+          <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:3px solid #EA4F24;padding-bottom:12px;margin-bottom:16px;">
+            <div style="display:flex;align-items:center;gap:12px;">
+              <div style="font-family:'Tomorrow',sans-serif;font-size:1.8rem;font-weight:700;color:#002436;line-height:1;">AZ</div>
+              <div>
+                <div style="font-family:'Tomorrow',sans-serif;font-size:1.15rem;font-weight:700;color:#002436;">Relatório de Chamados Abertos</div>
+                <div style="font-size:.8rem;color:#575756;">AZ Tecnologia de gestão · Dashboard Jira</div>
+              </div>
+            </div>
+            <div style="text-align:right;font-size:.75rem;color:#575756;">
+              <div><b>Gerado em:</b> ${esc(nowStr)}</div>
+              <div>${esc(fetched)}</div>
+              <div>${esc(scopeLabel)}</div>
+            </div>
+          </div>
+          ${subtitle ? `<div style="font-size:.8rem;color:#575756;margin-bottom:12px;">${esc(subtitle)}</div>` : ""}
+        `;
+
+        // --- Bloco 1: KPIs + Gráficos ---
+        reportTop = document.createElement("div");
+        reportTop.style.cssText = "position:fixed;left:-10000px;top:0;width:794px;background:#ffffff;padding:32px;font-family:'Barlow',sans-serif;color:#002436;box-sizing:border-box;";
+
+        let htmlTop = headerHtml("");
+        htmlTop += `<h2 style="font-family:'Tomorrow',sans-serif;font-size:1rem;color:#002436;margin:16px 0 8px;border-left:4px solid #EA4F24;padding-left:8px;">Indicadores (KPIs)</h2>`;
+        htmlTop += `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px;">`;
+        const kpiItems = [
+          { v: k.total, l: "Total abertos" },
+          { v: k.crit, l: "Prioridade crítica" },
+          { v: k.alta, l: "Prioridade alta" },
+          { v: k.resp, l: "Responsáveis" },
+          { v: k.daysOld + "d", l: "Mais antigo (dias)" },
+          { v: k.daysNew + "d", l: "Mais novo (dias)" },
+          { v: k.avgDays + "d", l: "Média dias abertos" },
+        ];
+        kpiItems.forEach(it => {
+          htmlTop += `<div style="background:#f8f9fa;border:1px solid #dee2e6;border-top:3px solid #EA4F24;padding:12px;">
+            <div style="font-family:'Tomorrow',sans-serif;font-size:1.5rem;font-weight:800;color:#EA4F24;line-height:1;">${esc(it.v)}</div>
+            <div style="color:#575756;font-size:.72rem;margin-top:4px;text-transform:uppercase;letter-spacing:.05em;">${esc(it.l)}</div>
+          </div>`;
+        });
+        htmlTop += `</div>`;
+
+        htmlTop += `<h2 style="font-family:'Tomorrow',sans-serif;font-size:1rem;color:#002436;margin:16px 0 8px;border-left:4px solid #EA4F24;padding-left:8px;">Gráficos</h2>`;
+        htmlTop += `<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:16px;">`;
+        chartIds.forEach(c => {
+          const canvas = document.getElementById(c.id);
+          let img = "";
+          try { img = canvas ? canvas.toDataURL("image/png") : ""; } catch(e){ img = ""; }
+          htmlTop += `<div style="border:1px solid #dee2e6;padding:10px;">
+            <div style="font-family:'Tomorrow',sans-serif;font-size:.9rem;font-weight:700;color:#002436;margin-bottom:6px;">${esc(c.title)}</div>
+            ${img ? `<img src="${img}" style="width:100%;height:auto;display:block;" />` : `<div style="color:#575756;font-size:.8rem;">(gráfico indisponível)</div>`}
+          </div>`;
+        });
+        htmlTop += `</div>`;
+
+        htmlTop += `<div style="margin-top:8px;font-size:.75rem;color:#575756;border-top:1px solid #dee2e6;padding-top:8px;">
+          Relatório gerado automaticamente pelo Dashboard de Chamados — AZ Tecnologia de gestão.
+        </div>`;
+
+        reportTop.innerHTML = htmlTop;
+        document.body.appendChild(reportTop);
+
+        // --- Bloco 2: Relação de chamados (nova página) ---
+        reportTable = document.createElement("div");
+        reportTable.style.cssText = "position:fixed;left:-10000px;top:0;width:794px;background:#ffffff;padding:32px;font-family:'Barlow',sans-serif;color:#002436;box-sizing:border-box;";
+
+        let htmlTable = headerHtml("Relação de chamados");
+        htmlTable += `<h2 style="font-family:'Tomorrow',sans-serif;font-size:1rem;color:#002436;margin:16px 0 8px;border-left:4px solid #EA4F24;padding-left:8px;">Todos os chamados (${data.length})</h2>`;
+        htmlTable += `<table style="width:100%;border-collapse:collapse;font-size:.72rem;">`;
+        htmlTable += `<thead><tr style="background:#002436;color:#fff;">
+          <th style="padding:6px 8px;border:1px solid #dee2e6;text-align:left;">Key</th>
+          <th style="padding:6px 8px;border:1px solid #dee2e6;text-align:left;">Tipo</th>
+          <th style="padding:6px 8px;border:1px solid #dee2e6;text-align:left;">Resumo</th>
+          <th style="padding:6px 8px;border:1px solid #dee2e6;text-align:left;">Status</th>
+          <th style="padding:6px 8px;border:1px solid #dee2e6;text-align:left;">Prioridade</th>
+          <th style="padding:6px 8px;border:1px solid #dee2e6;text-align:left;">Responsável</th>
+          <th style="padding:6px 8px;border:1px solid #dee2e6;text-align:left;">Criado</th>
+          <th style="padding:6px 8px;border:1px solid #dee2e6;text-align:left;">Atualizado</th>
+        </tr></thead><tbody>`;
+        const sorted = sortByRecent(data);
+        sorted.forEach((d, idx) => {
+          const bg = idx % 2 === 0 ? "#ffffff" : "#f4f5f7";
+          htmlTable += `<tr style="background:${bg};">
+            <td style="padding:6px 8px;border:1px solid #dee2e6;">${esc(d.key)}</td>
+            <td style="padding:6px 8px;border:1px solid #dee2e6;">${esc(d.issueType||"—")}</td>
+            <td style="padding:6px 8px;border:1px solid #dee2e6;">${esc(d.summary||"")}</td>
+            <td style="padding:6px 8px;border:1px solid #dee2e6;">${esc(d.status||"—")}</td>
+            <td style="padding:6px 8px;border:1px solid #dee2e6;">${esc(d.priority||"—")}</td>
+            <td style="padding:6px 8px;border:1px solid #dee2e6;">${esc(d.assignee ? d.assignee.name : "—")}</td>
+            <td style="padding:6px 8px;border:1px solid #dee2e6;">${esc(fmtDate(d.created))}</td>
+            <td style="padding:6px 8px;border:1px solid #dee2e6;">${esc(fmtDate(d.updated))}</td>
+          </tr>`;
+        });
+        htmlTable += `</tbody></table>`;
+        htmlTable += `<div style="margin-top:16px;font-size:.75rem;color:#575756;border-top:1px solid #dee2e6;padding-top:8px;">
+          Relatório gerado automaticamente pelo Dashboard de Chamados — AZ Tecnologia de gestão.
+        </div>`;
+
+        reportTable.innerHTML = htmlTable;
+        document.body.appendChild(reportTable);
+
+        // --- Bloco 3: Fluxo de Atividades (recentes) — paginado por linhas inteiras ---
+        function actRowHtml(e, idx){
+          const bg = idx % 2 === 0 ? "#ffffff" : "#f4f5f7";
+          let tipo = "Alteração";
+          let desc = "";
+          if (e.type === "comment") {
+            tipo = "Comentário";
+            desc = (e.body || "").slice(0, 180);
+          } else {
+            const field = e.field || "";
+            if (field.toLowerCase().includes("status")) desc = `status: ${e.from||"—"} → ${e.to||"—"}`;
+            else if (field.toLowerCase().includes("assignee")) desc = `responsável: ${e.from||"—"} → ${e.to||"—"}`;
+            else desc = `${field}: ${e.from||"—"} → ${e.to||"—"}`;
+          }
+          const dateStr = e.created ? new Date(e.created).toLocaleString("pt-BR") : "—";
+          return `<tr style="background:${bg};">
+            <td style="padding:6px 8px;border:1px solid #dee2e6;">${esc(e.issueKey||"—")}</td>
+            <td style="padding:6px 8px;border:1px solid #dee2e6;">${esc(tipo)}</td>
+            <td style="padding:6px 8px;border:1px solid #dee2e6;">${esc(desc)}</td>
+            <td style="padding:6px 8px;border:1px solid #dee2e6;">${esc(e.author||"—")}</td>
+            <td style="padding:6px 8px;border:1px solid #dee2e6;">${esc(dateStr)}</td>
+          </tr>`;
+        }
+        const actTableHead = `<thead><tr style="background:#002436;color:#fff;">
+          <th style="padding:6px 8px;border:1px solid #dee2e6;text-align:left;">Key</th>
+          <th style="padding:6px 8px;border:1px solid #dee2e6;text-align:left;">Tipo</th>
+          <th style="padding:6px 8px;border:1px solid #dee2e6;text-align:left;">Descrição</th>
+          <th style="padding:6px 8px;border:1px solid #dee2e6;text-align:left;">Autor</th>
+          <th style="padding:6px 8px;border:1px solid #dee2e6;text-align:left;">Data</th>
+        </tr></thead>`;
+
+        // Paginação render-driven: cada chunk é renderizado e verificado para caber em uma página
+        actPageContainers = [];
+        const ROWS_PER_CHUNK = 8; // seguro mesmo com linhas altas (descrições longas)
+        if (!activityData || activityData.length === 0) {
+          const c = document.createElement("div");
+          c.style.cssText = "position:fixed;left:-10000px;top:0;width:794px;background:#ffffff;padding:32px;font-family:'Barlow',sans-serif;color:#002436;box-sizing:border-box;";
+          let h = headerHtml("Fluxo de atividades (recentes)");
+          h += `<h2 style="font-family:'Tomorrow',sans-serif;font-size:1rem;color:#002436;margin:16px 0 8px;border-left:4px solid #EA4F24;padding-left:8px;">Fluxo de Atividades (últimos 3 dias) (${(activityData||[]).length})</h2>`;
+          h += `<div style="color:#575756;font-size:.85rem;padding:12px 0;">Nenhuma atividade recente.</div>`;
+          h += `<div style="margin-top:16px;font-size:.75rem;color:#575756;border-top:1px solid #dee2e6;padding-top:8px;">
+            Relatório gerado automaticamente pelo Dashboard de Chamados — AZ Tecnologia de gestão.
+          </div>`;
+          c.innerHTML = h;
+          document.body.appendChild(c);
+          actPageContainers.push(c);
+        } else {
+          const total = activityData.length;
+          const numChunks = Math.ceil(total / ROWS_PER_CHUNK);
+          for (let ci = 0; ci < numChunks; ci++) {
+            const slice = activityData.slice(ci * ROWS_PER_CHUNK, (ci + 1) * ROWS_PER_CHUNK);
+            const last = (ci === numChunks - 1);
+            const c = document.createElement("div");
+            c.style.cssText = "position:fixed;left:-10000px;top:0;width:794px;background:#ffffff;padding:32px;font-family:'Barlow',sans-serif;color:#002436;box-sizing:border-box;";
+            let h = headerHtml("Fluxo de atividades (recentes)");
+            h += `<h2 style="font-family:'Tomorrow',sans-serif;font-size:1rem;color:#002436;margin:16px 0 8px;border-left:4px solid #EA4F24;padding-left:8px;">Fluxo de Atividades (últimos 3 dias) (${total}) — pág. ${ci+1}/${numChunks}</h2>`;
+            h += `<table style="width:100%;border-collapse:collapse;font-size:.72rem;">`;
+            h += actTableHead + `<tbody>`;
+            slice.forEach((e, li) => {
+              const globalIdx = ci * ROWS_PER_CHUNK + li;
+              h += actRowHtml(e, globalIdx);
+            });
+            h += `</tbody></table>`;
+            if (last) {
+              h += `<div style="margin-top:16px;font-size:.75rem;color:#575756;border-top:1px solid #dee2e6;padding-top:8px;">
+                Relatório gerado automaticamente pelo Dashboard de Chamados — AZ Tecnologia de gestão.
+              </div>`;
+            }
+            c.innerHTML = h;
+            document.body.appendChild(c);
+            actPageContainers.push(c);
+          }
+        }
+
+        reportAct = actPageContainers[0] || null;
+
+        async function waitForImages(container){
+          const imgs = container.querySelectorAll("img");
+          await new Promise(resolve => {
+            if (imgs.length === 0) return resolve();
+            let pending = imgs.length;
+            imgs.forEach(img => {
+              if (img.complete) { if (--pending === 0) resolve(); }
+              else { img.onload = img.onerror = () => { if (--pending === 0) resolve(); }; }
+            });
+          });
+        }
+        await waitForImages(reportTop);
+        await waitForImages(reportTable);
+        for (const c of actPageContainers) await waitForImages(c);
+
+        const canvasTop = await html2canvas(reportTop, { scale: 2, useCORS: true, backgroundColor: "#ffffff", logging: false });
+        const canvasTable = await html2canvas(reportTable, { scale: 2, useCORS: true, backgroundColor: "#ffffff", logging: false });
+        const canvasActPages = [];
+        for (const c of actPageContainers) {
+          const cv = await html2canvas(c, { scale: 2, useCORS: true, backgroundColor: "#ffffff", logging: false });
+          canvasActPages.push(cv);
+        }
+
+        const { jsPDF } = window.jspdf;
+        const pdf = new jsPDF("p", "mm", "a4");
+        const pdfWidth = pdf.internal.pageSize.getWidth();
+        const pdfHeight = pdf.internal.pageSize.getHeight();
+
+        function addCanvas(canvas, fitToPage){
+          const imgData = canvas.toDataURL("image/png");
+          let imgWidth = pdfWidth;
+          let imgHeight = (canvas.height * imgWidth) / canvas.width;
+          if (fitToPage && imgHeight > pdfHeight) {
+            const scale = pdfHeight / imgHeight;
+            imgWidth = imgWidth * scale;
+            imgHeight = pdfHeight;
+          }
+          if (fitToPage) {
+            const x = (pdfWidth - imgWidth) / 2;
+            pdf.addImage(imgData, "PNG", x, 0, imgWidth, imgHeight);
+          } else {
+            let heightLeft = imgHeight;
+            let position = 0;
+            pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+            heightLeft -= pdfHeight;
+            while (heightLeft > 0) {
+              position = heightLeft - imgHeight;
+              pdf.addPage();
+              pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+              heightLeft -= pdfHeight;
+            }
+          }
+        }
+
+        addCanvas(canvasTop, true);
+        pdf.addPage();
+        addCanvas(canvasTable, false);
+        // Atividades: cada página já cabe inteira (linhas não cortadas)
+        pdf.addPage();
+        canvasActPages.forEach((c, i) => {
+          if (i > 0) pdf.addPage();
+          addCanvas(c, false);
+        });
+
+        const fname = "relatorio-chamados-" + new Date().toISOString().slice(0,10) + ".pdf";
+        pdf.save(fname);
+      } catch (e) {
+        console.error(e);
+        alert("Falha ao gerar PDF: " + (e && e.message ? e.message : e));
+      } finally {
+        if (reportTop && reportTop.parentNode) reportTop.parentNode.removeChild(reportTop);
+        if (reportTable && reportTable.parentNode) reportTable.parentNode.removeChild(reportTable);
+        if (Array.isArray(actPageContainers)) { actPageContainers.forEach(c => { if (c && c.parentNode) c.parentNode.removeChild(c); }); }
+        btn.disabled = false; btn.textContent = prevText;
+      }
+    }
+
+    document.getElementById("exportPdf").addEventListener("click", exportPdf);
+
+    document.getElementById("refresh").addEventListener("click", ()=>load(true));
+    document.getElementById("projectSelect").addEventListener("change", (e)=>{ currentProject = e.target.value; load(true); });
+    document.getElementById("openOnlyChk").addEventListener("change", (e)=>{ openOnly = e.target.checked; load(true); });
+
+    // Carrega lista de espaços do Jira (com busca e agrupamento por tipo)
+    const TYPE_LABELS = { service_desk:"Service Desk", software:"Software", business:"Business", product_discovery:"Discovery" };
+    let allProjects = [];
+
+    function renderProjectOptions(query=""){
+      const sel = document.getElementById("projectSelect");
+      const prev = currentProject;
+      sel.innerHTML = "";
+      const q = (query||"").trim().toLowerCase();
+      const filtered = allProjects.filter(p => !q || p.name.toLowerCase().includes(q) || p.key.toLowerCase().includes(q));
+      if (canSeeAll()) {
+        const allOpt = document.createElement("option");
+        allOpt.value = "all"; allOpt.textContent = "Todos os projetos";
+        sel.appendChild(allOpt);
+      }
+      const groups = {};
+      filtered.forEach(p => { const t = TYPE_LABELS[p.type] || "Outros"; (groups[t]=groups[t]||[]).push(p); });
+      Object.keys(groups).sort().forEach(g => {
+        const og = document.createElement("optgroup"); og.label = g;
+        groups[g].forEach(p => {
+          const opt = document.createElement("option");
+          opt.value = p.key;
+          opt.textContent = `${p.name} (${p.key})`;
+          og.appendChild(opt);
+        });
+        sel.appendChild(og);
+      });
+      if(Array.from(sel.options).some(o=>o.value===prev)) sel.value = prev;
+    }
+
+    document.getElementById("projectSearch").addEventListener("input", (e)=>{ renderProjectOptions(e.target.value); });
+
+    // ===== Login / sessao =====
+    async function bootApp(){
+      if (!token()) { showLogin(); return; }
+      try {
+        const r = await apiFetch("/api/me");
+        const j = await r.json();
+        if (j.success && j.user && j.user.username) {
+          session = j.user;
+          document.getElementById("userBadge").textContent = "👤 " + session.username;
+          hideLogin();
+          loadProjectsAndData();
+        } else {
+          localStorage.removeItem("tt_token");
+          session = null;
+          showLogin();
+        }
+      } catch(e){
+        localStorage.removeItem("tt_token");
+        session = null;
+        showLogin();
+      }
+    }
+
+    async function doLogin(){
+      const u = document.getElementById("loginUser").value.trim();
+      const p = document.getElementById("loginPass").value;
+      const err = document.getElementById("loginError");
+      err.textContent = "";
+      try {
+        const r = await fetch("/api/login", { method:"POST", headers:{ "Content-Type":"application/json", "ngrok-skip-browser-warning":"true" }, body: JSON.stringify({ username: u, password: p }) });
+        const j = await r.json();
+        if (!j.success) throw new Error(j.error || "Falha no login");
+        localStorage.setItem("tt_token", j.token);
+        session = j.user;
+        try { document.getElementById("userBadge").textContent = "👤 " + session.username; } catch(_){}
+        hideLogin();
+        try { loadProjectsAndData(); } catch(e){ console.warn("Erro ao carregar dados:", e.message); }
+      } catch(e){
+        err.textContent = e.message;
+      }
+    }
+    document.getElementById("loginBtn").addEventListener("click", doLogin);
+    [document.getElementById("loginUser"), document.getElementById("loginPass")].forEach(el => el.addEventListener("keydown", e => { if (e.key === "Enter") doLogin(); }));
+    document.getElementById("logoutBtn").addEventListener("click", async () => {
+      try { await fetch("/api/logout", { method:"POST", headers:{ "Authorization":"Bearer " + token() } }); } catch(e){}
+      localStorage.removeItem("tt_token");
+      session = null;
+      location.reload();
+    });
+
+    async function loadProjectsAndData(){
+      try {
+        const r = await apiFetch("/api/projects");
+        const j = await r.json();
+        if(j.success) allProjects = j.data||[];
+        else console.warn("Falha ao carregar projetos:", j?.error);
+      } catch(e){
+        console.warn("Erro ao carregar projetos:", e.message);
+      }
+      renderProjectOptions();
+      if(Array.from(document.getElementById("projectSelect").options).some(o=>o.value==="TO")) currentProject = "TO";
+      load();
+    }
+    bootApp();
+    document.getElementById("copyApi").addEventListener("click", ()=>{ navigator.clipboard.writeText(location.origin+"/api/chamados/abertos"); alert("URL copiada"); });
+    let tableVisible = true;
+    document.getElementById("toggleTable").addEventListener("click", ()=>{
+      tableVisible = !tableVisible;
+      document.getElementById("tableWrap").style.display = tableVisible ? "block" : "none";
+    });
+  </script>
+  <footer class="az-footer">
+    <div class="row">
+      <div class="brand">
+        <img src="https://www.azi.com.br/wp-content/uploads/2023/06/logo_az_white.svg" alt="AZ" style="height:22px;width:auto;" />
+        <span>AZ Tecnologia de gestão · (67) 3303-2700 · ouvidoria@azi.com.br</span>
+      </div>
+      <div class="links">
+        <a href="https://www.azi.com.br/empresa" target="_blank">Empresa</a>
+        <a href="https://www.azi.com.br/solucoes" target="_blank">Soluções</a>
+        <a href="https://www.azi.com.br/blog" target="_blank">Blog</a>
+        <a href="https://www.azi.com.br/contato" target="_blank">Contato</a>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>

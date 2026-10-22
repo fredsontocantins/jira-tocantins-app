@@ -1,0 +1,17 @@
+node_modules/
+.env
+*.log
+
+# Ruflo local secrets and runtime data
+.env.local
+.env.*.local
+.claude-flow/data/
+.claude-flow/logs/
+.claude-flow/sessions/
+
+# Graphify generated artifacts
+graphify-out/
+
+# Large binaries / vector DB
+ruvector.db
+test_export.pdf

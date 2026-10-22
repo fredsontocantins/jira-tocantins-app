@@ -1,0 +1,16 @@
+{
+  "version": 2,
+  "installedAt": "2026-10-21T07:03:50.055Z",
+  "files": {
+    "/home/casa/jira-tocantins-app/.claude/settings.json": {
+      "plugins": [
+        "ruflo-mods@ruflo",
+        "ruflo-swarm@ruflo",
+        "ruflo-console@ruflo"
+      ],
+      "marketplace": true,
+      "env": true,
+      "claudeInstalled": []
+    }
+  }
+}
