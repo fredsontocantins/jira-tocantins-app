@@ -267,8 +267,30 @@
         <tbody id="adminUsersBody"></tbody>
       </table>
     </div>
-  </div>
   <div class="drawer-backdrop" id="drawerBackdrop"></div>
+  <div class="modal-backdrop" id="approveBackdrop" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:4001;align-items:center;justify-content:center;">
+    <div style="background:var(--card);border:1px solid var(--border);padding:24px;max-width:520px;width:92vw;max-height:80vh;overflow:auto;border-top:4px solid var(--accent);">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <h2 style="margin:0;font-family:'Tomorrow',sans-serif;color:var(--navy);">✅ Aprovar usuário</h2>
+        <button id="approveClose" class="secondary">✕</button>
+      </div>
+      <div id="approveMsg" style="color:var(--muted);font-size:.85rem;margin-bottom:10px;"></div>
+      <div id="approveUserInfo" style="margin-bottom:12px;font-size:.85rem;"></div>
+      <div style="margin-bottom:8px;font-weight:600;font-size:.85rem;">Projetos com acesso:</div>
+      <div id="approveProjects" style="max-height:240px;overflow:auto;border:1px solid var(--border);padding:8px;border-radius:6px;"></div>
+      <div style="display:flex;gap:8px;margin-top:12px;justify-content:flex-end;">
+        <button id="approveCancel" class="secondary">Cancelar</button>
+        <button id="approveConfirm">Aprovar</button>
+      </div>
+    </div>
+  </div>
+  <div class="modal-backdrop" id="pendingBackdrop" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:4002;align-items:center;justify-content:center;">
+    <div style="background:var(--card);border:1px solid var(--border);padding:24px;max-width:420px;width:92vw;border-top:4px solid var(--accent);">
+      <h2 style="margin:0 0 8px;font-family:'Tomorrow',sans-serif;color:var(--navy);">⏳ Aguardando aprovação</h2>
+      <div style="color:var(--muted);font-size:.9rem;margin-bottom:16px;">Seu cadastro foi enviado para aprovação. Um administrador precisa liberar seu acesso e definir os projetos permitidos.</div>
+      <button id="pendingBackToLogin">Voltar ao login</button>
+    </div>
+  </div>
   <div class="drawer" id="drawer">
     <header><h2 id="drawerTitle">Histórico da issue</h2><div style="display:flex;gap:6px;"><button class="close" id="xrayBtn" style="background:var(--accent);">🔎 Raio-X</button>
 <button class="close" id="xrayTwgBtn" style="background:var(--secondary);">🔎 TWG</button><button class="close" id="drawerClose">✕</button></div></header>
@@ -294,6 +316,10 @@
     let searchTimer = null;
     let nextPageToken = null;
     let session = null; // { username, allowedProjects }
+    let adminUsers = [];
+    let adminProjects = [];
+    let approveUserId = null;
+    let approveMode = "approve"; // "approve" | "scope"
     document.addEventListener("keydown", (e) => { if (e.key === "/") { e.preventDefault(); document.getElementById("searchInput").focus(); } if (e.key === "Escape") { e.preventDefault(); document.getElementById("searchInput").value = ""; searchQuery = ""; debouncedSearch(event); } });
     function canSeeAll(){ return !!(session && (session.allowedProjects||[]).includes("all")); }
     function token(){ return localStorage.getItem("tt_token") || ""; }
@@ -349,7 +375,7 @@
         const r = await fetch("/api/auth/google", { method:"POST", headers:{ "Content-Type":"application/json", "ngrok-skip-browser-warning":"true" }, body: JSON.stringify({ credential: resp.credential }) });
         const j = await r.json();
         if (r.status === 202 || j.status === "pending") {
-          err.textContent = "Cadastro pendente de aprovação pelo administrador.";
+          document.getElementById("pendingBackdrop").style.display = "flex";
           return;
         }
         if (!j.success) throw new Error(j.error || "Falha no login Google");
@@ -1783,11 +1809,20 @@
     }
     async function openAdmin(){
       document.getElementById("adminBackdrop").style.display = "flex";
+      try {
+        const r = await apiFetch("/api/projects");
+        const j = await r.json();
+        if (j.success) adminProjects = j.data || [];
+      } catch(e){ console.warn("projetos admin:", e.message); }
       await loadAdminUsers();
     }
     function closeAdmin(){ document.getElementById("adminBackdrop").style.display = "none"; }
     document.getElementById("adminBtn").addEventListener("click", openAdmin);
     document.getElementById("adminClose").addEventListener("click", closeAdmin);
+    document.getElementById("approveClose").addEventListener("click", closeApproveModal);
+    document.getElementById("approveCancel").addEventListener("click", closeApproveModal);
+    document.getElementById("approveConfirm").addEventListener("click", submitApproveModal);
+    document.getElementById("pendingBackToLogin").addEventListener("click", () => { document.getElementById("pendingBackdrop").style.display = "none"; showLogin(); });
     async function loadAdminUsers(){
       const body = document.getElementById("adminUsersBody");
       const msg = document.getElementById("adminMsg");
@@ -1804,11 +1839,8 @@
           const actions = isPending
             ? `<button class='secondary' data-act='approve' data-id='${u.id}'>Aprovar</button>
                <button class='secondary' data-act='reject' data-id='${u.id}'>Rejeitar</button>`
-            : `<select data-id='${u.id}' class='admin-scope' style='font-size:.78rem;'>
-                 <option value='all' ${scope.includes("all")?'selected':''}>Todos</option>
-                 <option value='TO' ${scope.includes("TO")&&!scope.includes("all")?'selected':''}>TO</option>
-               </select>
-               <button class='secondary' data-act='scope' data-id='${u.id}'>Salvar</button>`;
+            : `<button class='secondary' data-act='scope' data-id='${u.id}'>Editar escopo</button>
+               <button class='secondary' data-act='reject' data-id='${u.id}'>Rejeitar</button>`;
           return `<tr>
             <td style='padding:6px;'>${u.email}</td>
             <td style='padding:6px;'>${u.name||""}</td>
@@ -1818,13 +1850,13 @@
           </tr>`;
         }).join("");
         // bind actions
-        body.querySelectorAll("button[data-act='approve']").forEach(b => b.addEventListener("click", async () => {
+        body.querySelectorAll("button[data-act='approve']").forEach(b => b.addEventListener("click", () => {
           const id = b.getAttribute("data-id");
-          const scope = prompt("Escopo (all ou lista de projetos separados por vírgula):", "all");
-          if (scope === null) return;
-          const projects = scope.split(",").map(s=>s.trim()).filter(Boolean);
-          await apiFetch("/api/admin/users/"+id+"/approve", { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ allowedProjects: projects.length?projects:["all"] }) });
-          loadAdminUsers();
+          const u = adminUsers.find(x => String(x.id) === String(id));
+          if (!u) return;
+          approveMode = "approve";
+          document.querySelector("#approveBackdrop h2").textContent = "✅ Aprovar usuário";
+          openApproveModal(u);
         }));
         body.querySelectorAll("button[data-act='reject']").forEach(b => b.addEventListener("click", async () => {
           const id = b.getAttribute("data-id");
@@ -1832,19 +1864,51 @@
           await apiFetch("/api/admin/users/"+id+"/reject", { method:"POST" });
           loadAdminUsers();
         }));
-        body.querySelectorAll("button[data-act='scope']").forEach(b => b.addEventListener("click", async () => {
+        body.querySelectorAll("button[data-act='scope']").forEach(b => b.addEventListener("click", () => {
           const id = b.getAttribute("data-id");
-          const sel = body.querySelector("select.admin-scope[data-id='"+id+"']");
-          const val = sel.value;
-          const projects = val === "all" ? ["all"] : [val];
-          await apiFetch("/api/admin/users/"+id+"/scope", { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ allowedProjects: projects }) });
-          loadAdminUsers();
+          const u = adminUsers.find(x => String(x.id) === String(id));
+          if (!u) return;
+          approveMode = "scope";
+          document.querySelector("#approveBackdrop h2").textContent = "✏️ Editar escopo";
+          openApproveModal(u);
         }));
       } catch(e){
         msg.textContent = e.message;
       }
     }
 
+    function openApproveModal(u){
+      approveUserId = u.id;
+      document.getElementById("approveUserInfo").innerHTML = `<b>${escapeHtml(u.name || u.email)}</b><br><span style="color:var(--muted);">${escapeHtml(u.email)}</span>`;
+      const msg = document.getElementById("approveMsg"); msg.textContent = "";
+      const container = document.getElementById("approveProjects");
+      const selected = new Set(u.allowedProjects || []);
+      const allSelected = selected.has("all");
+      container.innerHTML = `
+        <label style="display:block;margin-bottom:6px;"><input type="checkbox" value="all" ${allSelected?'checked':''}> Todos os projetos</label>
+        ${adminProjects.map(p=>`<label style="display:block;margin-bottom:4px;"><input type="checkbox" value="${escapeHtml(p.key)}" ${selected.has(p.key)||allSelected?'checked':''} ${allSelected?'disabled':''}> ${escapeHtml(p.key)} — ${escapeHtml(p.name)}</label>`).join("")}
+      `;
+      const allCb = container.querySelector('input[value="all"]');
+      if (allCb) allCb.addEventListener("change", () => {
+        const checked = allCb.checked;
+        container.querySelectorAll('input[type="checkbox"]').forEach(cb => { if (cb !== allCb) { cb.checked = checked; cb.disabled = checked; } });
+      });
+      document.getElementById("approveBackdrop").style.display = "flex";
+    }
+    function closeApproveModal(){ document.getElementById("approveBackdrop").style.display = "none"; approveUserId = null; }
+    async function submitApproveModal(){
+      const msg = document.getElementById("approveMsg");
+      const container = document.getElementById("approveProjects");
+      const vals = Array.from(container.querySelectorAll("input[type=checkbox]:checked")).map(cb => cb.value);
+      const projects = vals.includes("all") ? ["all"] : vals;
+      if (!projects.length) { msg.textContent = "Selecione ao menos um projeto."; return; }
+      try {
+        const url = approveMode === "approve" ? "/api/admin/users/"+approveUserId+"/approve" : "/api/admin/users/"+approveUserId+"/scope";
+        await apiFetch(url, { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ allowedProjects: projects }) });
+        closeApproveModal();
+        await loadAdminUsers();
+      } catch(e){ msg.textContent = e.message; }
+    }
     async function loadProjectsAndData(){
       try {
         const r = await apiFetch("/api/projects");
