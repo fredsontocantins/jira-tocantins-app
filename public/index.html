@@ -1326,7 +1326,7 @@
         document.getElementById("errorBox").innerHTML = `<div class="error">Erro: ${escapeHtml(e.message)}</div>`;
       }
     }
-    const load = fetchAllIssues;
+    async function load(refresh=false){ return fetchAllIssues(refresh); }
 
     function updatePageInfo(){
       const info = document.getElementById("pageInfo");
