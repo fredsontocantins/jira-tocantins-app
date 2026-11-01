@@ -284,6 +284,8 @@
     const API = "/api/chamados/abertos";
     const charts = {};
     let data = [];
+    let allData = [];
+    let filteredData = [];
     let activityData = [];
     let currentProject = "TO";
     let openOnly = true;
@@ -533,26 +535,77 @@
       });
     }
 
-    function sortByRecent(arr){
-      return [...arr].sort((a,b)=>{
-        const da = new Date(a.updated || a.created || 0).getTime();
-        const db = new Date(b.updated || b.created || 0).getTime();
-        return db - da; // mais recentes primeiro
-      });
+    function compareIssues(a, b, sort) {
+      const da = new Date(a.updated || a.created || 0).getTime();
+      const db = new Date(b.updated || b.created || 0).getTime();
+      switch (sort) {
+        case "created":
+          return db - da;
+        case "key":
+          return String(a.key || "").localeCompare(String(b.key || ""), "pt-BR");
+        case "priority": {
+          const pa = String(a.priority || "");
+          const pb = String(b.priority || "");
+          if (pa !== pb) return pa.localeCompare(pb, "pt-BR");
+          return db - da;
+        }
+        case "project": {
+          const pa = String(a.project?.key || a.project?.name || "");
+          const pb = String(b.project?.key || b.project?.name || "");
+          if (pa !== pb) return pa.localeCompare(pb, "pt-BR");
+          return db - da;
+        }
+        case "updated":
+        default:
+          return db - da;
+      }
     }
-    function renderTable(){
+
+    function applyClientFilters() {
+      const q = String(searchQuery || "").trim().toLowerCase();
+      filteredData = (allData || []).filter((d) => {
+        if (!q) return true;
+        const haystack = [
+          d.key, d.summary, d.status, d.priority,
+          d.assignee?.name, d.issueType, d.project?.key, d.project?.name,
+        ].filter(Boolean).join(" ").toLowerCase();
+        return haystack.includes(q);
+      });
+      filteredData.sort((a, b) => compareIssues(a, b, sortBy));
+      data = filteredData;
+    }
+
+    const ROW_HEIGHT = 44;
+    function renderTable() {
       const tbody = document.getElementById("tbody");
-      tbody.innerHTML = sortByRecent(data).map(d => `
-        <tr class="clickable-row" data-key="${d.key}" style="cursor:pointer;">
+      const wrap = document.getElementById("tableWrap");
+      const list = filteredData || [];
+      const total = list.length;
+      if (total === 0) {
+        tbody.innerHTML = `<tr><td colspan="8" class="empty">Nenhum chamado encontrado.</td></tr>`;
+        return;
+      }
+      const viewportH = (wrap && wrap.clientHeight) || 420;
+      const visibleRows = Math.max(8, Math.ceil(viewportH / ROW_HEIGHT) + 8);
+      const start = Math.min(total, Math.floor((wrap ? wrap.scrollTop : 0) / ROW_HEIGHT));
+      const end = Math.min(total, start + visibleRows);
+      const topSpacer = start * ROW_HEIGHT;
+      const bottomSpacer = Math.max(0, (total - end) * ROW_HEIGHT);
+      const rows = list.slice(start, end).map((d) => `
+        <tr class="clickable-row" data-key="${d.key}" style="height:${ROW_HEIGHT}px;">
           <td><span class="act-key keylink" data-key="${d.key}">${d.key}</span> <a href="${d.url}" target="_blank" title="Abrir no Jira" style="font-size:.75rem;">↗</a></td>
-          <td><span class="badge">${d.issueType||"—"}</span></td>
-          <td>${escapeHtml(d.summary||"")}</td>
-          <td>${d.status||"—"}</td>
-          <td><span class="badge prio-${d.priority}">${d.priority||"—"}</span></td>
+          <td><span class="badge">${d.issueType || "—"}</span></td>
+          <td>${escapeHtml(d.summary || "")}</td>
+          <td>${d.status || "—"}</td>
+          <td><span class="badge prio-${d.priority}">${d.priority || "—"}</span></td>
           <td>${d.assignee ? escapeHtml(d.assignee.name) : "—"}</td>
           <td>${fmtDate(d.created)}</td>
           <td>${fmtDate(d.updated)}</td>
         </tr>`).join("");
+      tbody.innerHTML =
+        (topSpacer > 0 ? `<tr class="spacer-row" style="height:${topSpacer}px;"><td colspan="8"></td></tr>` : "") +
+        rows +
+        (bottomSpacer > 0 ? `<tr class="spacer-row" style="height:${bottomSpacer}px;"><td colspan="8"></td></tr>` : "");
     }
 
     function activitiesLast3Days(events){
@@ -1228,40 +1281,42 @@
       document.querySelectorAll(".chart-box").forEach(el => _ro.observe(el));
     }
 
-    async function load(refresh=false){
+    async function fetchAllIssues(refresh=false){
       document.getElementById("loading").style.display="block";
       document.getElementById("content").style.display="none";
       document.getElementById("errorBox").innerHTML="";
       try {
-        const url = API + "?project=" + encodeURIComponent(currentProject) + "&open=" + (openOnly?"true":"false")
-          + "&q=" + encodeURIComponent(searchQuery) + "&sort=" + encodeURIComponent(sortBy)
-          + (refresh ? "&refresh=true" : "");
-        const r = await apiFetch(url);
-        const j = await r.json();
-        if(!j.success) throw new Error(j.error || "erro");
-        data = j.data || [];
-        nextPageToken = j.nextPageToken || null;
+        let token = null;
+        const collected = [];
+        do {
+          const params = new URLSearchParams();
+          params.set("project", currentProject);
+          params.set("open", openOnly ? "true" : "false");
+          params.set("sort", sortBy);
+          if (token) params.set("nextPageToken", token);
+          if (refresh) params.set("refresh", "true");
+          const url = "/api/issues?" + params.toString();
+          const r = await apiFetch(url);
+          const j = await r.json();
+          if (!j.success) throw new Error(j.error || "erro");
+          collected.push(...(j.issues || j.data || []));
+          token = j.nextPageToken || null;
+          if (j.isLast) break;
+        } while (token);
+        allData = collected;
+        applyClientFilters();
         document.getElementById("loading").style.display="none";
-        document.getElementById("fetchedAt").textContent = "Atualizado: " + new Date(j.fetchedAt).toLocaleString("pt-BR");
+        document.getElementById("fetchedAt").textContent = "Atualizado: " + new Date().toLocaleString("pt-BR");
         const meta = document.getElementById("scopeMeta");
         const label = document.getElementById("projectSelect").selectedOptions[0]?.textContent || currentProject;
         meta.textContent = "Jira · " + label + (openOnly ? " · Apenas abertos" : " · Todos os chamados");
-        if(data.length===0){ document.getElementById("empty").style.display="block"; return; }
+        if (data.length === 0) { document.getElementById("empty").style.display="block"; return; }
+        document.getElementById("empty").style.display="none";
         document.getElementById("content").style.display="block";
         renderKpis();
         renderCharts();
         renderTable();
         updatePageInfo();
-        // clickable keys in table
-        document.querySelectorAll("#tbody .keylink").forEach(n => n.addEventListener("click", (e)=>{ e.preventDefault(); e.stopPropagation(); openIssueDrawer(n.getAttribute("data-key")); }));
-        document.querySelectorAll("#tbody tr.clickable-row").forEach(tr => {
-          tr.onclick = (e) => { if (e.target.closest("a")) return; openIssueDrawer(tr.getAttribute("data-key")); };
-        });
-        // clickable rows
-        document.querySelectorAll("#tbody tr").forEach(tr => {
-          const keyEl = tr.querySelector(".keylink");
-          if (keyEl) tr.style.cursor = "pointer";
-        });
         // load activity feed
         apiFetch("/api/atividades?project=" + encodeURIComponent(currentProject) + "&open=" + (openOnly?"true":"false") + "&limit=60")
           .then(r=>r.json()).then(j=>{ if(j.success){ const recent = activitiesLast3Days(j.data); activityData = recent; renderActivity(recent); } }).catch(()=>{ document.getElementById("activityList").innerHTML='<div class="empty">Falha ao carregar atividades.</div>'; });
@@ -1271,12 +1326,13 @@
         document.getElementById("errorBox").innerHTML = `<div class="error">Erro: ${escapeHtml(e.message)}</div>`;
       }
     }
+    const load = fetchAllIssues;
 
     function updatePageInfo(){
       const info = document.getElementById("pageInfo");
       const btn = document.getElementById("loadMoreBtn");
-      if (info) info.textContent = `Exibindo ${data.length} chamado(s)${nextPageToken ? " · há mais resultados" : ""}`;
-      if (btn) btn.style.display = nextPageToken ? "inline-block" : "none";
+      if (info) info.textContent = `Exibindo ${data.length} de ${allData.length} chamado(s)`;
+      if (btn) btn.style.display = "none";
     }
 
     async function loadMore(){
@@ -1588,22 +1644,39 @@
 
     document.getElementById("exportPdf").addEventListener("click", exportPdf);
 
-    document.getElementById("refresh").addEventListener("click", ()=>load(true));
-    document.getElementById("projectSelect").addEventListener("change", (e)=>{ currentProject = e.target.value; load(true); });
-    document.getElementById("openOnlyChk").addEventListener("change", (e)=>{ openOnly = e.target.checked; load(true); });
+    document.getElementById("refresh").addEventListener("click", ()=>fetchAllIssues(true));
+    document.getElementById("projectSelect").addEventListener("change", (e)=>{ currentProject = e.target.value; fetchAllIssues(true); });
+    document.getElementById("openOnlyChk").addEventListener("change", (e)=>{ openOnly = e.target.checked; fetchAllIssues(true); });
     const searchInput = document.getElementById("searchInput");
     if (searchInput) {
       searchInput.addEventListener("input", (e) => {
         window.clearTimeout(searchTimer);
-        searchTimer = window.setTimeout(() => { searchQuery = (e.target.value || "").trim(); load(true); }, 450);
+        searchTimer = window.setTimeout(() => { searchQuery = (e.target.value || "").trim(); applyClientFilters(); renderTable(); updatePageInfo(); }, 300);
       });
     }
     const sortSelect = document.getElementById("sortSelect");
     if (sortSelect) {
-      sortSelect.addEventListener("change", (e) => { sortBy = e.target.value; load(true); });
+      sortSelect.addEventListener("change", (e) => { sortBy = e.target.value; applyClientFilters(); renderTable(); updatePageInfo(); });
     }
-    const loadMoreBtn = document.getElementById("loadMoreBtn");
-    if (loadMoreBtn) loadMoreBtn.addEventListener("click", () => loadMore());
+    const tableWrap = document.getElementById("tableWrap");
+    if (tableWrap) tableWrap.addEventListener("scroll", () => { window.requestAnimationFrame(renderTable); }, { passive: true });
+
+    const tbody = document.getElementById("tbody");
+    if (tbody) {
+      tbody.addEventListener("click", (e) => {
+        const keyEl = e.target.closest(".keylink");
+        if (keyEl) {
+          e.preventDefault();
+          e.stopPropagation();
+          openIssueDrawer(keyEl.getAttribute("data-key"));
+          return;
+        }
+        const tr = e.target.closest("tr.clickable-row");
+        if (tr && !e.target.closest("a")) {
+          openIssueDrawer(tr.getAttribute("data-key"));
+        }
+      });
+    }
     // Atalhos de teclado
     document.addEventListener("keydown", (e) => {
       if (e.key === "/" && !["INPUT","TEXTAREA","SELECT"].includes(document.activeElement?.tagName)) {
@@ -1613,7 +1686,9 @@
       if (e.key === "Escape" && document.activeElement === searchInput) {
         searchInput.value = "";
         searchQuery = "";
-        load(true);
+        applyClientFilters();
+        renderTable();
+        updatePageInfo();
         searchInput.blur();
       }
     });
