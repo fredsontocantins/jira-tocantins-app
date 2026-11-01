@@ -27,6 +27,12 @@ export const config = {
     },
   },
   port: parseInt(process.env.PORT || "3000", 10),
+  google: {
+    clientId: process.env.GOOGLE_CLIENT_ID || "",
+    allowedDomain: (process.env.GOOGLE_ALLOWED_DOMAIN || "azi.com.br").toLowerCase(),
+  },
+  adminEmail: (process.env.ADMIN_EMAIL || "fredson.sousa@azi.com.br").toLowerCase(),
+  dbPath: process.env.DB_PATH || "data/users.db",
 };
 
 export function jiraAuthHeader() {

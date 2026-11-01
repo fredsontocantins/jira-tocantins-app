@@ -11,6 +11,27 @@ const USERS = [
 const sessions = new Map();
 const SESSION_TTL = 12 * 60 * 60 * 1000;
 
+export function createSession({ username, email, allowedProjects, isAdmin = false }) {
+  const now = Date.now();
+  // limpa sessoes expiradas
+  for (const [tok, s] of sessions) {
+    if (now > s.expires) sessions.delete(tok);
+  }
+  const token = newToken();
+  sessions.set(token, {
+    username,
+    email: email || username,
+    allowedProjects: allowedProjects || [],
+    isAdmin: !!isAdmin,
+    expires: now + SESSION_TTL,
+  });
+  return {
+    token,
+    user: { username, email: email || username, allowedProjects: allowedProjects || [], isAdmin: !!isAdmin },
+    expiresAt: new Date(now + SESSION_TTL).toISOString(),
+  };
+}
+
 function newToken() {
   const bytes = new Uint8Array(20);
   // globalThis.crypto (disponivel no Node 20)
@@ -67,6 +88,15 @@ export function requestedProject(req) {
   if (scope === "all") return "all";
   if (scope) return "TO"; // legado scope=to
   return "TO"; // default
+}
+
+// Middleware: exige admin
+export function requireAdmin(req, res, next) {
+  const session = getSessionFromRequest(req);
+  if (!session) return res.status(401).json({ success: false, error: "Nao autenticado." });
+  if (!session.isAdmin) return res.status(403).json({ success: false, error: "Acesso restrito ao administrador." });
+  req.session = session;
+  next();
 }
 
 // Middleware: exige sessao valida

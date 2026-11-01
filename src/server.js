@@ -2,9 +2,11 @@ import express from "express";
 import path from "path";
 import { fileURLToPath } from "url";
 import { config, jiraAuthHeader } from "./config.js";
-import { fetchAbertos, fetchFilter, fetchIssuesByJql, normalizeIssue, DEFAULT_FIELDS, fetchIssueDetails, fetchComments, fetchWorklogs, fetchRecentActivity, fetchAttachmentMeta, jqlForScope, fetchProjects, jqlForProject } from "./jira.js";
+import { fetchAbertos, fetchFilter, fetchIssuesByJql, normalizeIssue, DEFAULT_FIELDS, fetchIssueDetails, fetchComments, fetchWorklogs, fetchRecentActivity, fetchAttachmentMeta, jqlForScope, fetchProjects, jqlForProject, searchIssues, createComment } from "./jira.js";
 import { isPipefyConfigured, fetchPipe, fetchCards, createCardFromIssue, syncIssuesToPipefy } from "./pipefy.js";
-import { login, logout, getSessionFromRequest, requireAuth, requireProjectScope, filterProjectsForSession, requestedProject, issueProjectGuard } from "./auth.js";
+import { login, logout, getSessionFromRequest, requireAuth, requireAdmin, requireProjectScope, filterProjectsForSession, requestedProject, issueProjectGuard, createSession } from "./auth.js";
+import { verifyGoogleIdToken } from "./googleAuth.js";
+import { upsertPendingUser, getUserByEmail, listUsers, approveUser, rejectUser, updateUserScope, isAdminEmail, ADMIN_EMAIL } from "./users.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -56,13 +58,102 @@ app.post("/api/login", (req, res) => {
 app.get("/api/me", (req, res) => {
   const session = getSessionFromRequest(req);
   if (!session) return res.status(401).json({ success: false, error: "Nao autenticado." });
-  res.json({ success: true, user: { username: session.username, allowedProjects: session.allowedProjects }, expiresAt: new Date(session.expires).toISOString() });
+  res.json({ success: true, user: { username: session.username, email: session.email, allowedProjects: session.allowedProjects, isAdmin: !!session.isAdmin }, expiresAt: new Date(session.expires).toISOString() });
 });
 app.post("/api/logout", (req, res) => {
   const auth = req.headers.authorization || "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : null;
   if (token) logout(token);
   res.json({ success: true });
+});
+
+// ===== Auth Google (dominio azi.com.br) =====
+app.get("/api/auth/config", (req, res) => {
+  res.json({
+    success: true,
+    googleEnabled: Boolean(config.google.clientId),
+    clientId: config.google.clientId || null,
+    allowedDomain: config.google.allowedDomain,
+    adminEmail: config.adminEmail,
+  });
+});
+
+app.post("/api/auth/google", async (req, res) => {
+  try {
+    const credential = req.body?.credential || req.body?.idToken;
+    if (!credential) return res.status(400).json({ success: false, error: "Token Google ausente." });
+    if (!config.google.clientId) {
+      return res.status(503).json({ success: false, error: "Google OAuth nao configurado (GOOGLE_CLIENT_ID)." });
+    }
+    const payload = await verifyGoogleIdToken(credential, config.google.clientId);
+    const email = String(payload.email).toLowerCase();
+    const domain = email.split("@")[1] || "";
+    if (domain !== config.google.allowedDomain) {
+      return res.status(403).json({ success: false, error: `Acesso restrito ao dominio @${config.google.allowedDomain}.` });
+    }
+
+    const user = upsertPendingUser({
+      email,
+      name: payload.name || payload.given_name || email,
+      picture: payload.picture || null,
+    });
+
+    if (user.status === "pending") {
+      return res.status(202).json({ success: true, status: "pending", message: "Cadastro pendente de aprovacao pelo administrador.", user: { email: user.email, name: user.name } });
+    }
+    if (user.status === "rejected") {
+      return res.status(403).json({ success: false, error: "Cadastro rejeitado pelo administrador." });
+    }
+    // approved
+    const session = createSession({
+      username: user.email,
+      email: user.email,
+      allowedProjects: user.allowedProjects && user.allowedProjects.length ? user.allowedProjects : (user.isAdmin ? ["all"] : []),
+      isAdmin: user.isAdmin,
+    });
+    res.json({ success: true, status: "approved", ...session });
+  } catch (err) {
+    res.status(401).json({ success: false, error: err.message || "Falha na autenticacao Google." });
+  }
+});
+
+// ===== Administracao de usuarios (admin) =====
+app.get("/api/admin/users", requireAdmin, (req, res) => {
+  const users = listUsers();
+  res.json({ success: true, count: users.length, data: users });
+});
+
+app.post("/api/admin/users/:id/approve", requireAdmin, (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!id) return res.status(400).json({ success: false, error: "id invalido" });
+  const scope = req.body?.allowedProjects || req.body?.scope;
+  let projects = ["all"];
+  if (Array.isArray(scope)) projects = scope;
+  else if (typeof scope === "string" && scope.trim()) {
+    projects = scope.split(",").map((s) => s.trim()).filter(Boolean);
+  }
+  const user = approveUser(id, projects, req.session.email);
+  res.json({ success: true, data: user });
+});
+
+app.post("/api/admin/users/:id/reject", requireAdmin, (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!id) return res.status(400).json({ success: false, error: "id invalido" });
+  const user = rejectUser(id, req.session.email);
+  res.json({ success: true, data: user });
+});
+
+app.post("/api/admin/users/:id/scope", requireAdmin, (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!id) return res.status(400).json({ success: false, error: "id invalido" });
+  const scope = req.body?.allowedProjects || req.body?.scope;
+  let projects = ["all"];
+  if (Array.isArray(scope)) projects = scope;
+  else if (typeof scope === "string" && scope.trim()) {
+    projects = scope.split(",").map((s) => s.trim()).filter(Boolean);
+  }
+  const user = updateUserScope(id, projects);
+  res.json({ success: true, data: user });
 });
 
 // Escopos de projeto disponíveis no seletor
@@ -92,6 +183,10 @@ app.get("/api/projects", requireAuth, async (req, res) => {
   }
 });
 
+function validProjectKey(value) {
+  return value === "all" || /^[A-Za-z0-9_]+$/.test(String(value || ""));
+}
+
 app.get("/api/chamados/abertos", requireAuth, requireProjectScope, async (req, res) => {
   try {
     // Compatibilidade com escopo antigo
@@ -100,30 +195,82 @@ app.get("/api/chamados/abertos", requireAuth, requireProjectScope, async (req, r
       project = req.query.scope === "all" ? "all" : "TO";
     }
     if (!project) project = "TO";
-    const openOnly = req.query.open === "true" || req.query.open === "1";
-    const refresh = req.query.refresh === "true";
-    const cacheKey = `abertos:${project}:${openOnly}`;
-    let data = refresh ? null : getCached(cacheKey);
-    const jql = jqlForProject(project, openOnly);
-    if (!data) {
-      data = await fetchAbertos(jql);
-      setCached(cacheKey, data);
+    if (!validProjectKey(project)) {
+      return res.status(400).json({ success: false, error: "Projeto inválido." });
     }
+    const openOnly = !(req.query.open === "false" || req.query.open === "0");
+    const query = String(req.query.q || "").trim().slice(0, 160);
+    const sort = String(req.query.sort || "updated");
+    const nextPageToken = String(req.query.nextPageToken || "").trim();
+    const refresh = req.query.refresh === "true";
+    const useSearch = Boolean(query || nextPageToken || req.query.sort);
+
+    // Caminho classico (sem busca/paginação) mantem cache e formato antigo
+    if (!useSearch) {
+      const cacheKey = `abertos:${project}:${openOnly}`;
+      let data = refresh ? null : getCached(cacheKey);
+      const jql = jqlForProject(project, openOnly);
+      if (!data) {
+        data = await fetchAbertos(jql);
+        setCached(cacheKey, data);
+      }
+      return res.json({
+        success: true,
+        source: "jira",
+        project,
+        openOnly,
+        jql,
+        filter: (project === "TO" && openOnly) ? config.jira.filterId : null,
+        count: data.length,
+        data,
+        cached: !refresh && !!getCached(cacheKey),
+        fetchedAt: new Date().toISOString(),
+      });
+    }
+
+    // Caminho com busca/paginação/ordenacao server-side
+    const result = await searchIssues({ projectKey: project, query, sort, nextPageToken, openOnly });
     res.json({
       success: true,
       source: "jira",
       project,
       openOnly,
-      jql,
-      filter: (project === "TO" && openOnly) ? config.jira.filterId : null,
-      count: data.length,
-      data,
-      cached: !refresh && !!getCached(cacheKey),
+      query,
+      sort,
+      count: result.issues.length,
+      data: result.issues,
+      total: result.total,
+      nextPageToken: result.nextPageToken,
+      isLast: result.isLast,
       fetchedAt: new Date().toISOString(),
     });
   } catch (err) {
-    res.status(502).json({ success: false, error: err.message });
+    res.status(err.status || 502).json({ success: false, error: err.message });
   }
+});
+
+// Alias estilo painel (zip): /api/issues com paginacao/busca/ordenacao
+app.get("/api/issues", requireAuth, requireProjectScope, async (req, res) => {
+  try {
+    const project = String(req.query.project || "all").trim();
+    if (!validProjectKey(project)) return res.status(400).json({ success: false, error: "Projeto inválido." });
+    const query = String(req.query.q || "").trim().slice(0, 160);
+    const sort = String(req.query.sort || "updated");
+    const nextPageToken = String(req.query.nextPageToken || "").trim();
+    const openOnly = !(req.query.open === "false" || req.query.open === "0");
+    const result = await searchIssues({ projectKey: project === "all" ? "" : project, query, sort, nextPageToken, openOnly });
+    res.json({ success: true, issues: result.issues, total: result.total, nextPageToken: result.nextPageToken, isLast: result.isLast, fetchedAt: new Date().toISOString() });
+  } catch (err) {
+    res.status(err.status || 502).json({ success: false, error: err.message });
+  }
+});
+
+// Alias estilo painel (zip): /api/projects (ja existe, mas garantimos mesmo caminho)
+// /api/attachments/:id -> /api/attachment/:id
+app.get("/api/attachments/:id", requireAuth, async (req, res) => {
+  req.url = `/api/attachment/${req.params.id}${req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : ""}`;
+  // delega para handler existente redirecionando
+  res.redirect(307, `/api/attachment/${encodeURIComponent(req.params.id)}${req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : ""}`);
 });
 
 app.get("/api/filter/:id", requireAuth, async (req, res) => {
@@ -139,6 +286,10 @@ app.get("/api/filter/:id", requireAuth, async (req, res) => {
 app.get("/api/jql", requireAuth, requireProjectScope, async (req, res) => {
   const jql = req.query.jql;
   if (!jql) return res.status(400).json({ success: false, error: "param 'jql' obrigatorio" });
+  const project = req.query.project;
+  if (project && !validProjectKey(project)) {
+    return res.status(400).json({ success: false, error: "Projeto inválido." });
+  }
   const fields = req.query.fields ? req.query.fields.split(",") : DEFAULT_FIELDS;
   const limit = parseInt(req.query.limit || String(config.jira.maxResults), 10);
   // Restringe o escopo quando o usuario nao tem acesso total
@@ -198,6 +349,26 @@ app.get("/api/issue/:key/comments", requireAuth, issueProjectGuard, async (req, 
     res.json({ success: true, count: comments.length, data: comments, fetchedAt: new Date().toISOString() });
   } catch (err) {
     res.status(502).json({ success: false, error: err.message });
+  }
+});
+
+// Cria nota/comentario direto no chamado (interno = nota interna JSM)
+app.post("/api/issue/:key/note", requireAuth, issueProjectGuard, async (req, res) => {
+  try {
+    const key = req.params.key;
+    const body = String(req.body?.body || "").trim();
+    const internal = req.body?.internal !== false;
+    const mentions = Array.isArray(req.body?.mentions)
+      ? req.body.mentions
+          .filter((m) => m && (m.accountId || m.id) && m.name)
+          .map((m) => ({ accountId: m.accountId || m.id, name: String(m.name).trim() }))
+      : [];
+    if (!body) return res.status(400).json({ success: false, error: "Texto da nota obrigatorio." });
+    if (body.length > 5000) return res.status(400).json({ success: false, error: "Nota muito longa (max. 5000 caracteres)." });
+    const comment = await createComment(key, body, { internal, mentions });
+    res.json({ success: true, data: comment, created: new Date().toISOString() });
+  } catch (err) {
+    res.status(err.status || 502).json({ success: false, error: err.message });
   }
 });
 
@@ -273,6 +444,7 @@ app.get("/api/attachment/:id", requireAuth, async (req, res) => {
     const meta = await fetchAttachmentMeta(req.params.id);
     const contentRes = await fetch(meta.content, {
       headers: { Authorization: jiraAuthHeader(), Accept: "*/*" },
+      signal: AbortSignal.timeout(30000),
     });
     if (!contentRes.ok) {
       return res.status(contentRes.status).json({ success: false, error: `Jira ${contentRes.status}` });
@@ -294,6 +466,7 @@ app.get("/api/attachment/:id/thumbnail", requireAuth, async (req, res) => {
     const thumbUrl = meta.thumbnail || meta.content;
     const contentRes = await fetch(thumbUrl, {
       headers: { Authorization: jiraAuthHeader(), Accept: "*/*" },
+      signal: AbortSignal.timeout(30000),
     });
     if (!contentRes.ok) {
       return res.status(contentRes.status).json({ success: false, error: `Jira ${contentRes.status}` });

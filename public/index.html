@@ -138,6 +138,7 @@
       .table-wrap { max-height:none; overflow:visible; }
     }
   </style>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body class="pre-auth">
   <header>
@@ -155,7 +156,16 @@
         <option value="TO">Tocantins (TO)</option>
       </select>
       <label style="display:flex;align-items:center;gap:4px;cursor:pointer;" class="meta"><input type="checkbox" id="openOnlyChk" checked /> Apenas abertos</label>
+      <input id="searchInput" oninput="debouncedSearch(event)" type="search" placeholder="Buscar (texto ou TO-123)…" style="padding:6px 10px;border-radius:0;border:1px solid var(--border);background:var(--card);color:var(--text);max-width:220px;" />
+      <select id="sortSelect" style="padding:6px 10px;border-radius:0;border:1px solid var(--border);background:var(--card);color:var(--text);max-width:180px;">
+        <option value="updated">Mais recentes</option>
+        <option value="created">Data de abertura</option>
+        <option value="priority">Prioridade</option>
+        <option value="key">Identificador</option>
+        <option value="project">Projeto</option>
+      </select>
       <span class="meta" id="userBadge" style="color:var(--accent);font-weight:600;"></span>
+      <button class="secondary" id="adminBtn" title="Administração" style="display:none;">⚙️ Admin</button>
       <button class="secondary" id="logoutBtn" title="Sair">Sair</button>
       <div class="meta" id="fetchedAt">—</div>
     </div>
@@ -186,6 +196,10 @@
               <thead><tr><th>Key</th><th>Tipo</th><th>Resumo</th><th>Status</th><th>Prioridade</th><th>Responsável</th><th>Criado</th><th>Atualizado</th></tr></thead>
               <tbody id="tbody"></tbody>
             </table>
+          </div>
+          <div style="margin-top:10px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+            <span class="meta" id="pageInfo">—</span>
+            <button class="secondary" id="loadMoreBtn" style="display:none;">Carregar mais chamados ↓</button>
           </div>
         </div>
         <div class="card wide"><h3>Fluxo de Atividades (últimos 3 dias)</h3>
@@ -234,10 +248,26 @@
       <input type="password" id="loginPass" placeholder="Senha" autocomplete="current-password" />
       <div class="login-error" id="loginError"></div>
       <button id="loginBtn">Entrar</button>
-      <div class="login-user">tocantins · operacoes</div>
+      <div style="text-align:center;margin:14px 0 8px;color:var(--muted);font-size:.8rem;">ou</div>
+      <div id="googleBtnContainer" style="display:flex;justify-content:center;"></div>
+      <div class="login-error" id="googleError"></div>
+      <div class="login-user">tocantins · operacoes · @azi.com.br (Google)</div>
     </div>
   </div>
 
+  <div class="modal-backdrop" id="adminBackdrop" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:4000;align-items:center;justify-content:center;">
+    <div style="background:var(--card);border:1px solid var(--border);padding:24px;max-width:720px;width:92vw;max-height:80vh;overflow:auto;border-top:4px solid var(--accent);">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <h2 style="margin:0;font-family:'Tomorrow',sans-serif;color:var(--navy);">⚙️ Administração de usuários</h2>
+        <button id="adminClose" class="secondary">✕</button>
+      </div>
+      <div id="adminMsg" style="color:var(--muted);font-size:.85rem;margin-bottom:10px;"></div>
+      <table style="width:100%;border-collapse:collapse;font-size:.85rem;">
+        <thead><tr style="background:var(--card2);"><th style="padding:6px;text-align:left;">Email</th><th style="padding:6px;">Nome</th><th style="padding:6px;">Status</th><th style="padding:6px;">Escopo</th><th style="padding:6px;">Ações</th></tr></thead>
+        <tbody id="adminUsersBody"></tbody>
+      </table>
+    </div>
+  </div>
   <div class="drawer-backdrop" id="drawerBackdrop"></div>
   <div class="drawer" id="drawer">
     <header><h2 id="drawerTitle">Histórico da issue</h2><div style="display:flex;gap:6px;"><button class="close" id="xrayBtn" style="background:var(--accent);">🔎 Raio-X</button>
@@ -257,7 +287,12 @@
     let activityData = [];
     let currentProject = "TO";
     let openOnly = true;
+    let searchQuery = "";
+    let sortBy = "updated";
+    let searchTimer = null;
+    let nextPageToken = null;
     let session = null; // { username, allowedProjects }
+    document.addEventListener("keydown", (e) => { if (e.key === "/") { e.preventDefault(); document.getElementById("searchInput").focus(); } if (e.key === "Escape") { e.preventDefault(); document.getElementById("searchInput").value = ""; searchQuery = ""; debouncedSearch(event); } });
     function canSeeAll(){ return !!(session && (session.allowedProjects||[]).includes("all")); }
     function token(){ return localStorage.getItem("tt_token") || ""; }
     // fetch com autenticacao
@@ -277,12 +312,63 @@
       document.getElementById("loginOverlay").classList.add("hidden");
       document.body.classList.remove("pre-auth");
     }
+    let googleClientId = null;
+    let googleReady = false;
+    async function initGoogle(){
+      try {
+        const r = await fetch("/api/auth/config", { headers: { "ngrok-skip-browser-warning":"true" } });
+        const j = await r.json();
+        if (!j.success) return;
+        googleClientId = j.clientId;
+        if (!googleClientId) {
+          document.getElementById("googleBtnContainer").innerHTML = '<div style="color:var(--muted);font-size:.78rem;text-align:center;">Google OAuth não configurado (GOOGLE_CLIENT_ID).</div>';
+          return;
+        }
+        const waitGis = () => {
+          if (window.google && window.google.accounts && window.google.accounts.id) {
+            window.google.accounts.id.initialize({
+              client_id: googleClientId,
+              callback: handleGoogleCredential,
+              hosted_domain: j.allowedDomain,
+            });
+            window.google.accounts.id.renderButton(document.getElementById("googleBtnContainer"), { theme: "outline", size: "large", text: "signin_with", shape: "rectangular" });
+            googleReady = true;
+          } else {
+            setTimeout(waitGis, 200);
+          }
+        };
+        waitGis();
+      } catch(e){ console.warn("auth config:", e.message); }
+    }
+    async function handleGoogleCredential(resp){
+      const err = document.getElementById("googleError");
+      err.textContent = "";
+      try {
+        const r = await fetch("/api/auth/google", { method:"POST", headers:{ "Content-Type":"application/json", "ngrok-skip-browser-warning":"true" }, body: JSON.stringify({ credential: resp.credential }) });
+        const j = await r.json();
+        if (r.status === 202 || j.status === "pending") {
+          err.textContent = "Cadastro pendente de aprovação pelo administrador.";
+          return;
+        }
+        if (!j.success) throw new Error(j.error || "Falha no login Google");
+        localStorage.setItem("tt_token", j.token);
+        session = j.user;
+        try { document.getElementById("userBadge").textContent = "👤 " + (session.email || session.username); } catch(_){}
+        updateAdminBtn();
+        hideLogin();
+        try { loadProjectsAndData(); } catch(e){ console.warn("Erro ao carregar dados:", e.message); }
+      } catch(e){
+        err.textContent = e.message;
+      }
+    }
     if (window.ChartDataLabels) Chart.register(ChartDataLabels);
 
     const PALETTE = ["#EA4F24","#002436","#198754","#ffc107","#dc3545","#DC7B52","#575756","#0d6efd","#6f42c1","#20c997","#fd7e14","#6c757d"];
 
     function fmtDate(s){ if(!s) return "—"; return s.slice(0,10).split("-").reverse().join("/"); }
     function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c])); }
+    function debounce(func, wait){ let timeout; return function(...args){ clearTimeout(timeout); timeout = setTimeout(()=>{ searchQuery = args[0]?.target?.value || ""; func.apply(this, args); }, wait); }; }
+    const debouncedSearch = debounce(load, 450);
     function adfToText(node){
       if(!node) return "";
       if(typeof node === "string") return node;
@@ -457,7 +543,7 @@
     function renderTable(){
       const tbody = document.getElementById("tbody");
       tbody.innerHTML = sortByRecent(data).map(d => `
-        <tr>
+        <tr class="clickable-row" data-key="${d.key}" style="cursor:pointer;">
           <td><span class="act-key keylink" data-key="${d.key}">${d.key}</span> <a href="${d.url}" target="_blank" title="Abrir no Jira" style="font-size:.75rem;">↗</a></td>
           <td><span class="badge">${d.issueType||"—"}</span></td>
           <td>${escapeHtml(d.summary||"")}</td>
@@ -691,8 +777,9 @@
         html += `<div class="section"><h4>Comentários (${comments.length})</h4>`;
         if(comments.length===0) html += '<div class="empty">Sem comentários.</div>';
         comments.forEach(c => {
+          const vis = c.visibility === "internal" ? "Nota interna" : (c.visibility === "public" ? "Comentário público" : (c.visibility === "restricted" ? "Restrito" : "Comentário"));
           html += `<div class="cmt">
-            <div><span class="author">${escapeHtml(c.author?.name||"—")}</span> <span class="date">${new Date(c.created).toLocaleString("pt-BR")}</span></div>
+            <div><span class="author">${escapeHtml(c.author?.name||"—")}</span> <span class="badge" style="font-size:.65rem;margin:0 4px;">${vis}</span> <span class="date">${new Date(c.created).toLocaleString("pt-BR")}</span></div>
             <div class="body">${escapeHtml(c.body||"")}</div>
           </div>`;
         });
@@ -742,6 +829,8 @@
         const jw = await rWl.json();
         if(!j.success) throw new Error(j.error);
         const d = j.data;
+        window.__xrayParticipants = Array.isArray(d.participants) ? d.participants : [];
+        window.__xrayNoteMentions = [];
         const issue = d.issue || {};
         const analysis = (ja && ja.success) ? ja.data : null;
         const worklogs = (jw && jw.success) ? (jw.data || []) : [];
@@ -780,6 +869,19 @@
           const descText = typeof issue.description === "string" ? issue.description : (adfToTextFn ? adfToTextFn(issue.description) : JSON.stringify(issue.description));
           html += "<div style=\"margin-top:8px;\"><b>Descrição:</b><div style=\"white-space:pre-wrap;word-break:break-word;margin-top:4px;font-size:.85rem;\">" + esc2(descText) + "</div></div>";
         }
+        const tags = [...(issue.labels || []), ...(issue.components || [])].filter(Boolean);
+        if (tags.length) {
+          html += "<div style=\"margin-top:8px;\"><b>Etiquetas/Componentes:</b> " + tags.map(t => "<span class=\"badge\" style=\"margin:2px;\">" + esc2(t) + "</span>").join("") + "</div>";
+        }
+        const customFields = (d.customFields || []);
+        if (customFields.length) {
+          html += "<div style=\"margin-top:8px;\"><b>Outros campos:</b><details style=\"margin-top:4px;\"><summary>Ver " + customFields.length + " campo(s)</summary>";
+          customFields.forEach(cf => {
+            const v = (typeof cf.value === "string") ? cf.value : JSON.stringify(cf.value);
+            html += "<div style=\"font-size:.8rem;margin:2px 0;\"><b>" + esc2(cf.label || cf.key) + ":</b> " + esc2(String(v).slice(0,500)) + "</div>";
+          });
+          html += "</details></div>";
+        }
         html += "</div>";
 
         if (analysis && analysis.intent) {
@@ -811,14 +913,17 @@
           html += "</div></div>";
         }
 
-        const conv = (analysis && analysis.conversation) ? analysis.conversation : [];
-        const listComments = conv.length ? conv : comments.map(c=>({author:c.author?c.author.name:"—", role:"—", date:c.created, body:c.body}));
+        const reporterName = (issue && issue.reporter) ? issue.reporter.name : (analysis && analysis.intent ? analysis.intent.reporter : null);
+        const listComments = comments.length ? comments : (analysis && analysis.conversation ? analysis.conversation.map(c=>({author:c.author, created:c.date, body:c.body, visibility:"unknown"})) : []);
         if (listComments.length) {
           textSummary += "\\nCOMENTÁRIOS (" + listComments.length + "):\\n";
           html += "<div class=\"section\"><h4>💬 Comentários (" + listComments.length + ")</h4>";
           listComments.forEach(c => {
-            html += "<div class=\"cmt\"><div><span class=\"author\">" + esc2(c.author||"—") + "</span> <span class=\"date\">" + (c.date?new Date(c.date).toLocaleString("pt-BR"):"") + "</span>" + (c.role && c.role!=="—"? " <span class=\"badge\">" + esc2(c.role) + "</span>":"") + "</div><div class=\"body\">" + esc2(c.body||"") + "</div></div>";
-            textSummary += "[" + (c.date?new Date(c.date).toLocaleString("pt-BR"):"") + "] " + (c.author||"—") + ": " + String(c.body||"").slice(0,300) + "\\n";
+            const authorName = c.author && c.author.name ? c.author.name : (c.author || "—");
+            const role = (authorName && reporterName && authorName === reporterName) ? "cliente" : "suporte";
+            const vis = c.visibility === "internal" ? "Nota interna" : (c.visibility === "public" ? "Comentário público" : (c.visibility === "restricted" ? "Restrito" : "Comentário"));
+            html += "<div class=\"cmt\"><div><span class=\"author\">" + esc2(authorName||"—") + "</span> <span class=\"badge\" style=\"font-size:.65rem;margin:0 4px;\">" + esc2(vis) + "</span>" + (reporterName ? " <span class=\"badge\" style=\"font-size:.65rem;\">" + esc2(role) + "</span>" : "") + " <span class=\"date\">" + (c.created?new Date(c.created).toLocaleString("pt-BR"):"") + "</span></div><div class=\"body\">" + esc2(c.body||"") + "</div></div>";
+            textSummary += "[" + (c.created?new Date(c.created).toLocaleString("pt-BR"):"") + "] " + (authorName||"—") + " (" + vis + "): " + String(c.body||"").slice(0,300) + "\\n";
           });
           html += "</div>";
         }
@@ -842,6 +947,15 @@
           });
           html += "</div>";
         }
+
+        // Bloco de nota/comentario direto
+        html += "<div class=\"section\"><h4>📝 Nova nota / comentário</h4>";
+        html += "<textarea id=\"xrayNoteBody\" rows=\"3\" style=\"width:100%;box-sizing:border-box;\" placeholder=\"Escreva a nota... Use @ para mencionar participantes\"></textarea>";
+        html += "<div id=\"xrayNoteMentions\" style=\"display:none;position:relative;margin-top:4px;background:#fff;border:1px solid #ddd;border-radius:6px;max-height:180px;overflow:auto;box-shadow:0 4px 12px rgba(0,0,0,.15);\"></div>";
+        html += "<div style=\"margin-top:6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;\">";
+        html += "<label style=\"font-size:.8rem;\"><input type=\"checkbox\" id=\"xrayNoteInternal\" checked> Nota interna</label>";
+        html += "<button id=\"xrayNoteSend\" class=\"btn\" style=\"padding:4px 10px;\">Enviar</button>";
+        html += "<span id=\"xrayNoteStatus\" class=\"act-meta\"></span></div></div>";
 
         content.innerHTML = html;
         window.__xraySummary = textSummary;
@@ -872,6 +986,8 @@
         const jc = await rCmt.json();
         if(!j.success) throw new Error(j.error);
         const d = j.data;
+        window.__xrayParticipants = Array.isArray(d.participants) ? d.participants : [];
+        window.__xrayNoteMentions = [];
         const issue = d.issue || {};
         const analysis = (ja && ja.success) ? ja.data : null;
         const worklogs = (jw && jw.success) ? (jw.data || []) : [];
@@ -943,8 +1059,10 @@
           textSummary += "\\nCOMENTARIOS (" + comments.length + "):\\n";
           html += "<div class='section'><h4>Comentarios (" + comments.length + ")</h4>";
           comments.forEach(c => {
-            html += "<div class='cmt'><div><span class='author'>" + esc2(c.author||"--") + "</span> <span class='date'>" + (c.created?new Date(c.created).toLocaleString("pt-BR"):"--") + "</span>" + (c.role && c.role!="--"? " <span class='badge'>" + esc2(c.role) + "</span>":"") + "</div><div class='body'>" + esc2(c.body||"") + "</div></div>";
-            textSummary += "[" + (c.created?new Date(c.created).toLocaleString("pt-BR"):"--") + "] " + (c.author||"--") + ": " + String(c.body||"").slice(0,300) + "\\n";
+            const authorName = c.author && c.author.name ? c.author.name : (c.author || "--");
+            const vis = c.visibility === "internal" ? "Nota interna" : (c.visibility === "public" ? "Comentario publico" : (c.visibility === "restricted" ? "Restrito" : "Comentario"));
+            html += "<div class='cmt'><div><span class='author'>" + esc2(authorName) + "</span> <span class='badge' style='font-size:.65rem;margin:0 4px;'>" + esc2(vis) + "</span> <span class='date'>" + (c.created?new Date(c.created).toLocaleString("pt-BR"):"--") + "</span></div><div class='body'>" + esc2(c.body||"") + "</div></div>";
+            textSummary += "[" + (c.created?new Date(c.created).toLocaleString("pt-BR"):"--") + "] " + authorName + " (" + vis + "): " + String(c.body||"").slice(0,300) + "\\n";
           });
           html += "</div>";
         }
@@ -959,6 +1077,15 @@
           });
           html += "</div>";
         }
+
+        // Bloco de nota/comentario direto
+        html += "<div class='section'><h4>📝 Nova nota / comentário</h4>";
+        html += "<textarea id='xrayNoteBody' rows='3' style='width:100%;box-sizing:border-box;' placeholder='Escreva a nota... Use @ para mencionar participantes'></textarea>";
+        html += "<div id='xrayNoteMentions' style='display:none;position:relative;margin-top:4px;background:#fff;border:1px solid #ddd;border-radius:6px;max-height:180px;overflow:auto;box-shadow:0 4px 12px rgba(0,0,0,.15);'></div>";
+        html += "<div style='margin-top:6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;'>";
+        html += "<label style='font-size:.8rem;'><input type='checkbox' id='xrayNoteInternal' checked> Nota interna</label>";
+        html += "<button id='xrayNoteSend' class='btn' style='padding:4px 10px;'>Enviar</button>";
+        html += "<span id='xrayNoteStatus' class='act-meta'></span></div></div>";
 
         content.innerHTML = html;
         window.__xraySummary = textSummary;
@@ -975,6 +1102,95 @@
       if(!t){ alert("Nada para copiar."); return; }
       navigator.clipboard.writeText(t).then(()=>{ alert("Raio-X copiado para a área de transferência."); }).catch(()=>{ alert("Não foi possível copiar."); });
     });
+    // Handler global para envio de nota/comentario no Raio-X
+    document.addEventListener("click", async (e) => {
+      if (!e.target || e.target.id !== "xrayNoteSend") return;
+      const noteKey = window.__currentIssueKey;
+      if (!noteKey) { alert("Abra um chamado primeiro."); return; }
+      const noteBody = (document.getElementById("xrayNoteBody")?.value || "").trim();
+      const noteInternal = !!document.getElementById("xrayNoteInternal")?.checked;
+      const statusEl = document.getElementById("xrayNoteStatus");
+      const btn = e.target;
+      if (!noteBody) { if (statusEl) statusEl.textContent = "Escreva a nota."; return; }
+      btn.disabled = true;
+      if (statusEl) statusEl.textContent = "Enviando...";
+      try {
+        const r = await apiFetch("/api/issue/" + encodeURIComponent(noteKey) + "/note", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ body: noteBody, internal: noteInternal, mentions: (window.__xrayNoteMentions || []) })
+        });
+        const j = await r.json();
+        if (!j.success) throw new Error(j.error);
+        const authorName = j.data?.author?.name || j.data?.author?.displayName || "—";
+        const vis = j.data?.visibility === "internal" ? "nota interna" : (j.data?.visibility === "public" ? "comentário público" : (j.data?.visibility || "comentário"));
+        const ta = document.getElementById("xrayNoteBody");
+        if (ta) ta.value = "";
+        window.__xrayNoteMentions = [];
+        if (statusEl) statusEl.textContent = "Enviado por " + authorName + " (" + vis + ").";
+        const title = document.getElementById("xrayTitle")?.textContent || "";
+        if (title.includes("TWG")) openXrayTwg(noteKey); else openXray(noteKey);
+      } catch (err) {
+        if (statusEl) statusEl.textContent = "Erro: " + err.message;
+      } finally { btn.disabled = false; }
+    });
+
+    // Autocomplete de @menções no campo de nota do Raio-X
+    function xrayMentionQuery(ta) {
+      const pos = (ta && typeof ta.selectionStart === "number") ? ta.selectionStart : 0;
+      const text = String((ta && ta.value) || "").slice(0, pos);
+      const m = text.match(/@([^\s@]*)$/);
+      return m ? m[1] : null;
+    }
+    function xrayShowMentions(ta) {
+      const dd = document.getElementById("xrayNoteMentions");
+      if (!dd || !ta) return;
+      const q = xrayMentionQuery(ta);
+      if (q === null) { dd.style.display = "none"; dd.innerHTML = ""; return; }
+      const participants = Array.isArray(window.__xrayParticipants) ? window.__xrayParticipants : [];
+      const filtered = participants.filter((p) => String(p && p.name || "").toLowerCase().includes(String(q).toLowerCase()));
+      if (!filtered.length) { dd.style.display = "none"; dd.innerHTML = ""; return; }
+      dd.innerHTML = filtered.map((p) => {
+        const name = String(p.name || "");
+        const role = String(p.role || "");
+        const accountId = String(p.accountId || "");
+        return "<div class=\"mention-item\" data-name=\"" + escapeHtml(name) + "\" data-account=\"" + escapeHtml(accountId) + "\" style=\"padding:6px 8px;cursor:pointer;border-bottom:1px solid #f0f0f0;\">" +
+          "<b>" + escapeHtml(name || "—") + "</b>" + (role ? " <span class=\"act-meta\">" + escapeHtml(role) + "</span>" : "") + "</div>";
+      }).join("");
+      dd.style.display = "block";
+    }
+    document.addEventListener("input", (e) => {
+      if (!e.target || e.target.id !== "xrayNoteBody") return;
+      xrayShowMentions(e.target);
+    });
+    document.addEventListener("click", (e) => {
+      const item = e.target && e.target.closest ? e.target.closest(".mention-item") : null;
+      if (item) {
+        const ta = document.getElementById("xrayNoteBody");
+        if (!ta) return;
+        const name = item.getAttribute("data-name") || "";
+        const accountId = item.getAttribute("data-account") || "";
+        const pos = (typeof ta.selectionStart === "number") ? ta.selectionStart : ta.value.length;
+        const before = ta.value.slice(0, pos);
+        const after = ta.value.slice(pos);
+        const replaced = before.replace(/@([^\s@]*)$/, "@" + name + " ");
+        ta.value = replaced + after;
+        ta.selectionStart = ta.selectionEnd = replaced.length;
+        window.__xrayNoteMentions = Array.isArray(window.__xrayNoteMentions) ? window.__xrayNoteMentions : [];
+        if (accountId && !window.__xrayNoteMentions.some((m) => m.accountId === accountId)) {
+          window.__xrayNoteMentions.push({ accountId, name });
+        }
+        const dd = document.getElementById("xrayNoteMentions");
+        if (dd) { dd.style.display = "none"; dd.innerHTML = ""; }
+        ta.focus();
+        return;
+      }
+      const dd = document.getElementById("xrayNoteMentions");
+      if (dd && (!e.target || !e.target.closest || !e.target.closest("#xrayNoteMentions")) && (!e.target || e.target.id !== "xrayNoteBody")) {
+        dd.style.display = "none";
+      }
+    });
+
     document.getElementById("xrayBtn").addEventListener("click", ()=>{ const k = window.__currentIssueKey; if(k) openXray(k); else alert("Abra um chamado primeiro."); });
     document.getElementById("xrayTwgBtn").addEventListener("click", ()=>{ const k = window.__currentIssueKey; if(k) openXrayTwg(k); else alert("Abra um chamado primeiro."); });
 
@@ -1017,11 +1233,14 @@
       document.getElementById("content").style.display="none";
       document.getElementById("errorBox").innerHTML="";
       try {
-        const url = API + "?project=" + encodeURIComponent(currentProject) + "&open=" + (openOnly?"true":"false") + (refresh ? "&refresh=true" : "");
+        const url = API + "?project=" + encodeURIComponent(currentProject) + "&open=" + (openOnly?"true":"false")
+          + "&q=" + encodeURIComponent(searchQuery) + "&sort=" + encodeURIComponent(sortBy)
+          + (refresh ? "&refresh=true" : "");
         const r = await apiFetch(url);
         const j = await r.json();
         if(!j.success) throw new Error(j.error || "erro");
         data = j.data || [];
+        nextPageToken = j.nextPageToken || null;
         document.getElementById("loading").style.display="none";
         document.getElementById("fetchedAt").textContent = "Atualizado: " + new Date(j.fetchedAt).toLocaleString("pt-BR");
         const meta = document.getElementById("scopeMeta");
@@ -1032,8 +1251,17 @@
         renderKpis();
         renderCharts();
         renderTable();
+        updatePageInfo();
         // clickable keys in table
-        document.querySelectorAll("#tbody .keylink").forEach(n => n.addEventListener("click", (e)=>{ e.preventDefault(); openIssueDrawer(n.getAttribute("data-key")); }));
+        document.querySelectorAll("#tbody .keylink").forEach(n => n.addEventListener("click", (e)=>{ e.preventDefault(); e.stopPropagation(); openIssueDrawer(n.getAttribute("data-key")); }));
+        document.querySelectorAll("#tbody tr.clickable-row").forEach(tr => {
+          tr.onclick = (e) => { if (e.target.closest("a")) return; openIssueDrawer(tr.getAttribute("data-key")); };
+        });
+        // clickable rows
+        document.querySelectorAll("#tbody tr").forEach(tr => {
+          const keyEl = tr.querySelector(".keylink");
+          if (keyEl) tr.style.cursor = "pointer";
+        });
         // load activity feed
         apiFetch("/api/atividades?project=" + encodeURIComponent(currentProject) + "&open=" + (openOnly?"true":"false") + "&limit=60")
           .then(r=>r.json()).then(j=>{ if(j.success){ const recent = activitiesLast3Days(j.data); activityData = recent; renderActivity(recent); } }).catch(()=>{ document.getElementById("activityList").innerHTML='<div class="empty">Falha ao carregar atividades.</div>'; });
@@ -1041,6 +1269,41 @@
       } catch(e){
         document.getElementById("loading").style.display="none";
         document.getElementById("errorBox").innerHTML = `<div class="error">Erro: ${escapeHtml(e.message)}</div>`;
+      }
+    }
+
+    function updatePageInfo(){
+      const info = document.getElementById("pageInfo");
+      const btn = document.getElementById("loadMoreBtn");
+      if (info) info.textContent = `Exibindo ${data.length} chamado(s)${nextPageToken ? " · há mais resultados" : ""}`;
+      if (btn) btn.style.display = nextPageToken ? "inline-block" : "none";
+    }
+
+    async function loadMore(){
+      if (!nextPageToken) return;
+      const btn = document.getElementById("loadMoreBtn");
+      if (btn) btn.disabled = true;
+      try {
+        const url = API + "?project=" + encodeURIComponent(currentProject) + "&open=" + (openOnly?"true":"false")
+          + "&q=" + encodeURIComponent(searchQuery) + "&sort=" + encodeURIComponent(sortBy)
+          + "&nextPageToken=" + encodeURIComponent(nextPageToken);
+        const r = await apiFetch(url);
+        const j = await r.json();
+        if (!j.success) throw new Error(j.error || "erro");
+        data = data.concat(j.data || []);
+        nextPageToken = j.nextPageToken || null;
+        renderKpis();
+        renderCharts();
+        renderTable();
+        updatePageInfo();
+        document.querySelectorAll("#tbody .keylink").forEach(n => n.addEventListener("click", (e)=>{ e.preventDefault(); e.stopPropagation(); openIssueDrawer(n.getAttribute("data-key")); }));
+        document.querySelectorAll("#tbody tr.clickable-row").forEach(tr => {
+          tr.onclick = (e) => { if (e.target.closest("a")) return; openIssueDrawer(tr.getAttribute("data-key")); };
+        });
+      } catch (e) {
+        document.getElementById("errorBox").innerHTML = `<div class="error">Erro: ${escapeHtml(e.message)}</div>`;
+      } finally {
+        if (btn) btn.disabled = false;
       }
     }
 
@@ -1328,6 +1591,32 @@
     document.getElementById("refresh").addEventListener("click", ()=>load(true));
     document.getElementById("projectSelect").addEventListener("change", (e)=>{ currentProject = e.target.value; load(true); });
     document.getElementById("openOnlyChk").addEventListener("change", (e)=>{ openOnly = e.target.checked; load(true); });
+    const searchInput = document.getElementById("searchInput");
+    if (searchInput) {
+      searchInput.addEventListener("input", (e) => {
+        window.clearTimeout(searchTimer);
+        searchTimer = window.setTimeout(() => { searchQuery = (e.target.value || "").trim(); load(true); }, 450);
+      });
+    }
+    const sortSelect = document.getElementById("sortSelect");
+    if (sortSelect) {
+      sortSelect.addEventListener("change", (e) => { sortBy = e.target.value; load(true); });
+    }
+    const loadMoreBtn = document.getElementById("loadMoreBtn");
+    if (loadMoreBtn) loadMoreBtn.addEventListener("click", () => loadMore());
+    // Atalhos de teclado
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "/" && !["INPUT","TEXTAREA","SELECT"].includes(document.activeElement?.tagName)) {
+        e.preventDefault();
+        if (searchInput) searchInput.focus();
+      }
+      if (e.key === "Escape" && document.activeElement === searchInput) {
+        searchInput.value = "";
+        searchQuery = "";
+        load(true);
+        searchInput.blur();
+      }
+    });
 
     // Carrega lista de espaços do Jira (com busca e agrupamento por tipo)
     const TYPE_LABELS = { service_desk:"Service Desk", software:"Software", business:"Business", product_discovery:"Discovery" };
@@ -1369,7 +1658,8 @@
         const j = await r.json();
         if (j.success && j.user && j.user.username) {
           session = j.user;
-          document.getElementById("userBadge").textContent = "👤 " + session.username;
+          document.getElementById("userBadge").textContent = "👤 " + (session.email || session.username);
+          updateAdminBtn();
           hideLogin();
           loadProjectsAndData();
         } else {
@@ -1395,7 +1685,8 @@
         if (!j.success) throw new Error(j.error || "Falha no login");
         localStorage.setItem("tt_token", j.token);
         session = j.user;
-        try { document.getElementById("userBadge").textContent = "👤 " + session.username; } catch(_){}
+        try { document.getElementById("userBadge").textContent = "👤 " + (session.email || session.username); } catch(_){}
+        updateAdminBtn();
         hideLogin();
         try { loadProjectsAndData(); } catch(e){ console.warn("Erro ao carregar dados:", e.message); }
       } catch(e){
@@ -1411,6 +1702,74 @@
       location.reload();
     });
 
+    function updateAdminBtn(){
+      const btn = document.getElementById("adminBtn");
+      if (btn) btn.style.display = (session && session.isAdmin) ? "inline-block" : "none";
+    }
+    async function openAdmin(){
+      document.getElementById("adminBackdrop").style.display = "flex";
+      await loadAdminUsers();
+    }
+    function closeAdmin(){ document.getElementById("adminBackdrop").style.display = "none"; }
+    document.getElementById("adminBtn").addEventListener("click", openAdmin);
+    document.getElementById("adminClose").addEventListener("click", closeAdmin);
+    async function loadAdminUsers(){
+      const body = document.getElementById("adminUsersBody");
+      const msg = document.getElementById("adminMsg");
+      body.innerHTML = "<tr><td colspan='5' style='padding:8px;text-align:center;color:var(--muted);'>Carregando…</td></tr>";
+      try {
+        const r = await apiFetch("/api/admin/users");
+        const j = await r.json();
+        if (!j.success) throw new Error(j.error);
+        const users = j.data || [];
+        if (!users.length) { body.innerHTML = "<tr><td colspan='5' style='padding:8px;text-align:center;color:var(--muted);'>Nenhum usuário.</td></tr>"; return; }
+        body.innerHTML = users.map(u => {
+          const scope = (u.allowedProjects||[]).join(", ") || "—";
+          const isPending = u.status === "pending";
+          const actions = isPending
+            ? `<button class='secondary' data-act='approve' data-id='${u.id}'>Aprovar</button>
+               <button class='secondary' data-act='reject' data-id='${u.id}'>Rejeitar</button>`
+            : `<select data-id='${u.id}' class='admin-scope' style='font-size:.78rem;'>
+                 <option value='all' ${scope.includes("all")?'selected':''}>Todos</option>
+                 <option value='TO' ${scope.includes("TO")&&!scope.includes("all")?'selected':''}>TO</option>
+               </select>
+               <button class='secondary' data-act='scope' data-id='${u.id}'>Salvar</button>`;
+          return `<tr>
+            <td style='padding:6px;'>${u.email}</td>
+            <td style='padding:6px;'>${u.name||""}</td>
+            <td style='padding:6px;'>${u.status}</td>
+            <td style='padding:6px;'>${scope}</td>
+            <td style='padding:6px;white-space:nowrap;'>${actions}</td>
+          </tr>`;
+        }).join("");
+        // bind actions
+        body.querySelectorAll("button[data-act='approve']").forEach(b => b.addEventListener("click", async () => {
+          const id = b.getAttribute("data-id");
+          const scope = prompt("Escopo (all ou lista de projetos separados por vírgula):", "all");
+          if (scope === null) return;
+          const projects = scope.split(",").map(s=>s.trim()).filter(Boolean);
+          await apiFetch("/api/admin/users/"+id+"/approve", { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ allowedProjects: projects.length?projects:["all"] }) });
+          loadAdminUsers();
+        }));
+        body.querySelectorAll("button[data-act='reject']").forEach(b => b.addEventListener("click", async () => {
+          const id = b.getAttribute("data-id");
+          if (!confirm("Rejeitar este usuário?")) return;
+          await apiFetch("/api/admin/users/"+id+"/reject", { method:"POST" });
+          loadAdminUsers();
+        }));
+        body.querySelectorAll("button[data-act='scope']").forEach(b => b.addEventListener("click", async () => {
+          const id = b.getAttribute("data-id");
+          const sel = body.querySelector("select.admin-scope[data-id='"+id+"']");
+          const val = sel.value;
+          const projects = val === "all" ? ["all"] : [val];
+          await apiFetch("/api/admin/users/"+id+"/scope", { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ allowedProjects: projects }) });
+          loadAdminUsers();
+        }));
+      } catch(e){
+        msg.textContent = e.message;
+      }
+    }
+
     async function loadProjectsAndData(){
       try {
         const r = await apiFetch("/api/projects");
@@ -1425,6 +1784,7 @@
       load();
     }
     bootApp();
+    initGoogle();
     document.getElementById("copyApi").addEventListener("click", ()=>{ navigator.clipboard.writeText(location.origin+"/api/chamados/abertos"); alert("URL copiada"); });
     let tableVisible = true;
     document.getElementById("toggleTable").addEventListener("click", ()=>{
