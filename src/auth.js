@@ -1,3 +1,5 @@
+import { config } from "./config.js";
+
 // Autenticacao simples por usuarios/senhas fixos + tokens em memoria
 // - tocantins  / senha123       -> ve somente o espaco TO
 // - operacoes  / operacoes@123  -> ve tudo (todos os projetos)
@@ -65,14 +67,38 @@ export function login(username, password) {
 export function getSessionFromRequest(req) {
   const auth = req.headers.authorization || "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : null;
-  if (!token) return null;
-  const session = sessions.get(token);
-  if (!session) return null;
-  if (Date.now() > session.expires) {
-    sessions.delete(token);
-    return null;
+  if (token) {
+    const session = sessions.get(token);
+    if (!session) return null;
+    if (Date.now() > session.expires) {
+      sessions.delete(token);
+      return null;
+    }
+    return session;
   }
-  return session;
+  // Suporte a Basic Auth direto (e-mail + token Atlassian), util para integracoes/ngrok
+  if (auth.startsWith("Basic ")) {
+    try {
+      const decoded = Buffer.from(auth.slice(6).trim(), "base64").toString("utf8");
+      const sep = decoded.indexOf(":");
+      if (sep > 0) {
+        const email = decoded.slice(0, sep);
+        const jiraToken = decoded.slice(sep + 1);
+        if (email && jiraToken && email === config.jira.email && jiraToken === config.jira.token) {
+          return {
+            username: email,
+            email,
+            allowedProjects: ["all"],
+            isAdmin: true,
+            expires: Number.MAX_SAFE_INTEGER,
+          };
+        }
+      }
+    } catch (err) {
+      // ignore malformed basic auth
+    }
+  }
+  return null;
 }
 
 // Remove sessao
