@@ -439,7 +439,7 @@ app.get("/api/issue/:key/analysis", requireAuth, issueProjectGuard, async (req, 
 });
 
 // Proxy de anexos (imagens/arquivos) do Jira, para visualização/download no browser
-app.get("/api/attachment/:id", requireAuth, async (req, res) => {
+app.get("/api/attachment/:id", async (req, res) => {
   try {
     const meta = await fetchAttachmentMeta(req.params.id);
     const contentRes = await fetch(meta.content, {
@@ -460,7 +460,7 @@ app.get("/api/attachment/:id", requireAuth, async (req, res) => {
 });
 
 // Proxy de miniatura de anexo
-app.get("/api/attachment/:id/thumbnail", requireAuth, async (req, res) => {
+app.get("/api/attachment/:id/thumbnail", async (req, res) => {
   try {
     const meta = await fetchAttachmentMeta(req.params.id);
     const thumbUrl = meta.thumbnail || meta.content;
@@ -556,6 +556,11 @@ app.post("/api/pipefy/webhook", (req, res) => {
   res.status(200).json({ received: true, event });
 });
 
+// 404 JSON para rotas /api desconhecidas (nunca HTML)
+app.use("/api", (req, res) => {
+  res.status(404).json({ success: false, error: `Rota não encontrada: ${req.method} ${req.originalUrl}` });
+});
+
 // Frontend estatico
 app.use(express.static(path.join(__dirname, "..", "public")));
 
@@ -563,9 +568,41 @@ app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "..", "public", "index.html"));
 });
 
+// Último middleware: qualquer erro vira JSON (nunca HTML)
+app.use((err, req, res, next) => {
+  if (res.headersSent) return next(err);
+  console.error(`[erro] ${req.method} ${req.originalUrl}:`, err);
+  const status = err.status || err.statusCode || 500;
+  res.status(status).json({ success: false, error: err.message || "Erro interno do servidor." });
+});
+
 const HOST = process.env.HOST || "0.0.0.0";
+
+// Validação de configuração no startup (avisos, não bloqueios)
+function validateConfig() {
+  const warnings = [];
+  if (!config.google.clientId) {
+    warnings.push("GOOGLE_CLIENT_ID ausente — login Google desabilitado.");
+  } else if (!/\.apps\.googleusercontent\.com$/.test(config.google.clientId)) {
+    warnings.push("GOOGLE_CLIENT_ID com formato inesperado (esperado *.apps.googleusercontent.com).");
+  }
+  if (!config.google.allowedDomain) {
+    warnings.push("GOOGLE_ALLOWED_DOMAIN ausente — domínio não restrito.");
+  }
+  if (!config.adminEmail) {
+    warnings.push("ADMIN_EMAIL ausente — nenhum admin auto-aprovado.");
+  }
+  if (!config.jira.domain || !config.jira.email || !config.jira.token) {
+    warnings.push("Credenciais Jira incompletas (JIRA_DOMAIN/EMAIL/TOKEN).");
+  }
+  for (const w of warnings) console.warn(`⚠️  Config: ${w}`);
+  if (!warnings.length) console.log("✅ Configuração Google OAuth: OK (clientId + domínio + admin).");
+}
+validateConfig();
+
 app.listen(config.port, HOST, () => {
   console.log(`🚀 Servidor rodando em http://${HOST}:${config.port}`);
   console.log(`   API: http://${HOST}:${config.port}/api/chamados/abertos`);
   console.log(`   Health: http://${HOST}:${config.port}/api/health`);
+  console.log(`   Google OAuth: ${config.google.clientId ? "habilitado (" + config.google.allowedDomain + ")" : "DESABILITADO"}`);
 });

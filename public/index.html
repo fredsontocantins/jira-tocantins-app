@@ -240,20 +240,22 @@
     </div>
   </div>
 
-  <div class="login-overlay" id="loginOverlay">
+  <form id="loginForm">
+    <div class="login-overlay" id="loginOverlay">
     <div class="login-card">
       <h2>🔒 Acesso restrito</h2>
       <div class="sub">Dashboard — Chamados Jira</div>
       <input type="text" id="loginUser" placeholder="Usuário" autocomplete="username" />
       <input type="password" id="loginPass" placeholder="Senha" autocomplete="current-password" />
       <div class="login-error" id="loginError"></div>
-      <button id="loginBtn">Entrar</button>
+      <button id="loginBtn" type="submit">Entrar</button>
       <div style="text-align:center;margin:14px 0 8px;color:var(--muted);font-size:.8rem;">ou</div>
       <div id="googleBtnContainer" style="display:flex;justify-content:center;"></div>
       <div class="login-error" id="googleError"></div>
       <div class="login-user">tocantins · operacoes · @azi.com.br (Google)</div>
     </div>
   </div>
+</form>
 
   <div class="modal-backdrop" id="adminBackdrop" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:4000;align-items:center;justify-content:center;">
     <div style="background:var(--card);border:1px solid var(--border);padding:24px;max-width:720px;width:92vw;max-height:80vh;overflow:auto;border-top:4px solid var(--accent);">
@@ -267,6 +269,7 @@
         <tbody id="adminUsersBody"></tbody>
       </table>
     </div>
+  </div>
   <div class="drawer-backdrop" id="drawerBackdrop"></div>
   <div class="modal-backdrop" id="approveBackdrop" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:4001;align-items:center;justify-content:center;">
     <div style="background:var(--card);border:1px solid var(--border);padding:24px;max-width:520px;width:92vw;max-height:80vh;overflow:auto;border-top:4px solid var(--accent);">
@@ -311,6 +314,7 @@
     let activityData = [];
     let currentProject = "TO";
     let openOnly = true;
+    let statusFilter = null;
     let searchQuery = "";
     let sortBy = "updated";
     let searchTimer = null;
@@ -323,14 +327,27 @@
     document.addEventListener("keydown", (e) => { if (e.key === "/") { e.preventDefault(); document.getElementById("searchInput").focus(); } if (e.key === "Escape") { e.preventDefault(); document.getElementById("searchInput").value = ""; searchQuery = ""; debouncedSearch(event); } });
     function canSeeAll(){ return !!(session && (session.allowedProjects||[]).includes("all")); }
     function token(){ return localStorage.getItem("tt_token") || ""; }
+    // Evita cache após rebuild do container
+    (function(){ if(!sessionStorage.getItem('jira_reloaded')){ sessionStorage.setItem('jira_reloaded','1'); location.reload(true); } })();
+    // Garante erro legível quando o servidor responde HTML (proxy/ngrok ou erro interno) em vez de JSON
+    function withSafeJson(res){
+      const ct = (res.headers.get("content-type") || "").toLowerCase();
+      if (ct.includes("json")) return res;
+      res.json = async () => {
+        let snippet = "";
+        try { snippet = (await res.text()).replace(/\s+/g, " ").slice(0, 160); } catch(_) {}
+        throw new Error(`Servidor retornou HTTP ${res.status} sem JSON (possível proxy/ngrok ou erro interno).${snippet ? " Trecho: " + snippet : ""}`);
+      };
+      return res;
+    }
     // fetch com autenticacao
     async function apiFetch(url, opts = {}){
-      const headers = Object.assign({ "ngrok-skip-browser-warning":"true" }, opts.headers || {});
+      const headers = Object.assign({ "ngrok-skip-browser-warning":"true", "Accept":"application/json" }, opts.headers || {});
       const t = token();
       if (t) headers["Authorization"] = "Bearer " + t;
       const res = await fetch(url, Object.assign({}, opts, { headers }));
       if (res.status === 401) { showLogin(); throw new Error("Sessão expirada. Faça login novamente."); }
-      return res;
+      return withSafeJson(res);
     }
     function showLogin(){
       document.getElementById("loginOverlay").classList.remove("hidden");
@@ -344,7 +361,7 @@
     let googleReady = false;
     async function initGoogle(){
       try {
-        const r = await fetch("/api/auth/config", { headers: { "ngrok-skip-browser-warning":"true" } });
+        const r = await withSafeJson(await fetch("/api/auth/config", { headers: { "ngrok-skip-browser-warning":"true", "Accept":"application/json" } }));
         const j = await r.json();
         if (!j.success) return;
         googleClientId = j.clientId;
@@ -372,7 +389,7 @@
       const err = document.getElementById("googleError");
       err.textContent = "";
       try {
-        const r = await fetch("/api/auth/google", { method:"POST", headers:{ "Content-Type":"application/json", "ngrok-skip-browser-warning":"true" }, body: JSON.stringify({ credential: resp.credential }) });
+        const r = await withSafeJson(await fetch("/api/auth/google", { method:"POST", headers:{ "Content-Type":"application/json", "ngrok-skip-browser-warning":"true", "Accept":"application/json" }, body: JSON.stringify({ credential: resp.credential }) }));
         const j = await r.json();
         if (r.status === 202 || j.status === "pending") {
           document.getElementById("pendingBackdrop").style.display = "flex";
@@ -587,6 +604,20 @@
       }
     }
 
+    /**
+     * Sorts an array of issue objects by updated date descending (most recent first).
+     * Used by exportPdf() to sort issues in the PDF report.
+     * @param {Array} data - Array of issue objects with 'updated' property
+     * @returns {Array} - Sorted array by updated date descending
+     */
+    function sortByRecent(data) {
+      return (data || []).sort((a, b) => {
+        const da = new Date(a.updated || a.created || 0).getTime();
+        const db = new Date(b.updated || b.created || 0).getTime();
+        return db - da; // most recent first
+      });
+    }
+
     function applyClientFilters() {
       const q = String(searchQuery || "").trim().toLowerCase();
       filteredData = (allData || []).filter((d) => {
@@ -597,8 +628,18 @@
         ].filter(Boolean).join(" ").toLowerCase();
         return haystack.includes(q);
       });
+      // Filtro por status quando houver ativo
+      if (statusFilter) {
+        filteredData = filteredData.filter((d) => (d.status||"—") === statusFilter);
+      }
       filteredData.sort((a, b) => compareIssues(a, b, sortBy));
       data = filteredData;
+    }
+
+    function setStatusFilter(status) {
+      statusFilter = status;
+      applyClientFilters();
+      renderTable();
     }
 
     const ROW_HEIGHT = 44;
@@ -618,11 +659,11 @@
       const topSpacer = start * ROW_HEIGHT;
       const bottomSpacer = Math.max(0, (total - end) * ROW_HEIGHT);
       const rows = list.slice(start, end).map((d) => `
-        <tr class="clickable-row" data-key="${d.key}" style="height:${ROW_HEIGHT}px;">
-          <td><span class="act-key keylink" data-key="${d.key}">${d.key}</span> <a href="${d.url}" target="_blank" title="Abrir no Jira" style="font-size:.75rem;">↗</a></td>
+        <tr class="clickable-row" data-key="${d.key}" style="height:${ROW_HEIGHT}px;" onclick="console.log('row click', '${d.key}'); openIssueDrawer('${d.key}')">
+          <td><span class="act-key keylink" data-key="${d.key}" onclick="event.stopPropagation(); console.log('key click', '${d.key}'); openIssueDrawer('${d.key}')">${d.key}</span> <a href="${d.url}" target="_blank" title="Abrir no Jira" style="font-size:.75rem;">↗</a></td>
           <td><span class="badge">${d.issueType || "—"}</span></td>
           <td>${escapeHtml(d.summary || "")}</td>
-          <td>${d.status || "—"}</td>
+          <td style="cursor:pointer;" onclick="setStatusFilter('${d.status}')">${d.status || "—"}</td>
           <td><span class="badge prio-${d.priority}">${d.priority || "—"}</span></td>
           <td>${d.assignee ? escapeHtml(d.assignee.name) : "—"}</td>
           <td>${fmtDate(d.created)}</td>
@@ -634,16 +675,8 @@
         (bottomSpacer > 0 ? `<tr class="spacer-row" style="height:${bottomSpacer}px;"><td colspan="8"></td></tr>` : "");
     }
 
-    function activitiesLast3Days(events){
-      const now = new Date();
-      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      const threeDaysAgo = new Date(todayStart.getTime() - 2*86400000);
-      const tomorrowStart = new Date(todayStart.getTime() + 86400000);
-      return (events||[]).filter(e => {
-        if (!e.created) return false;
-        const d = new Date(e.created);
-        return d >= threeDaysAgo && d < tomorrowStart;
-      });
+    function activitiesAllDays(events){
+      return (events||[]).filter(e => e.created);
     }
     function renderActivity(events){
       const el = document.getElementById("activityList");
@@ -785,6 +818,7 @@
     }
 
     async function openIssueDrawer(key){
+      console.log('openIssueDrawer called with', key);
       const drawer = document.getElementById("drawer");
       const drawerLeft = document.getElementById("drawerLeft");
       const backdrop = document.getElementById("drawerBackdrop");
@@ -1345,7 +1379,7 @@
         updatePageInfo();
         // load activity feed
         apiFetch("/api/atividades?project=" + encodeURIComponent(currentProject) + "&open=" + (openOnly?"true":"false") + "&limit=60")
-          .then(r=>r.json()).then(j=>{ if(j.success){ const recent = activitiesLast3Days(j.data); activityData = recent; renderActivity(recent); } }).catch(()=>{ document.getElementById("activityList").innerHTML='<div class="empty">Falha ao carregar atividades.</div>'; });
+          .then(r=>r.json()).then(j=>{ if(j.success){ const recent = activitiesAllDays(j.data); activityData = recent; renderActivity(recent); } }).catch(()=>{ document.getElementById("activityList").innerHTML='<div class="empty">Falha ao carregar atividades.</div>'; });
         setupResizeObserver();
       } catch(e){
         document.getElementById("loading").style.display="none";
@@ -1393,13 +1427,20 @@
       const btn = document.getElementById("exportPdf");
       const prevText = btn.textContent;
       btn.disabled = true; btn.textContent = "Gerando PDF...";
-      let reportTop = null, reportTable = null, reportAct = null, actPageContainers = [];
+      let reportTop = null, reportTable = null;
       try {
+        // Verifica se há dados para exportar
+        if (!data || data.length === 0) {
+          document.getElementById("errorBox").innerHTML = `<div class="error">Nenhum dado para exportar. Filtre ou carregue chamados antes de gerar o PDF.</div>`;
+          btn.disabled = false; btn.textContent = prevText;
+          return;
+        }
+
         // Garante que as atividades estejam carregadas antes de montar o PDF
         try {
           const ar = await apiFetch("/api/atividades?project=" + encodeURIComponent(currentProject) + "&open=" + (openOnly?"true":"false") + "&limit=60");
           const aj = await ar.json();
-          if (aj && aj.success) { activityData = activitiesLast3Days(aj.data); renderActivity(activityData); }
+          if (aj && aj.success) { activityData = activitiesAllDays(aj.data); renderActivity(activityData); }
         } catch (ae) { console.warn("Falha ao recarregar atividades para PDF:", ae); }
         const k = computeKpis();
         const nowStr = new Date().toLocaleString("pt-BR");
@@ -1781,7 +1822,7 @@
       const err = document.getElementById("loginError");
       err.textContent = "";
       try {
-        const r = await fetch("/api/login", { method:"POST", headers:{ "Content-Type":"application/json", "ngrok-skip-browser-warning":"true" }, body: JSON.stringify({ username: u, password: p }) });
+        const r = await withSafeJson(await fetch("/api/login", { method:"POST", headers:{ "Content-Type":"application/json", "ngrok-skip-browser-warning":"true", "Accept":"application/json" }, body: JSON.stringify({ username: u, password: p }) }));
         const j = await r.json();
         if (!j.success) throw new Error(j.error || "Falha no login");
         localStorage.setItem("tt_token", j.token);
