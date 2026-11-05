@@ -1997,7 +1997,8 @@
           <option value="PI">PI</option>
           <option value="P3">P3</option>
         </select>
-        <input id="releaseVersionInput" placeholder="Versão / termo (ex: 2.17.3)" style="margin-left:8px;padding:6px 10px;border-radius:0;border:1px solid var(--border);background:var(--card);color:var(--text);max-width:220px;" />
+        <input id="releaseVersionInput" placeholder="Versão / termo (ex: 2.17.3)" style="margin-left:8px;padding:6px 10px;border-radius:0;border:1px solid var(--border);background:var(--card);color:var(--text);max-width:180px;" />
+        <input id="releaseModuleInput" placeholder="Módulo (opcional)" style="margin-left:8px;padding:6px 10px;border-radius:0;border:1px solid var(--border);background:var(--card);color:var(--text);max-width:180px;" />
         <button class="secondary" id="releaseSearchBtn" style="margin-left:8px;">Buscar</button>
       </div>
       <div id="releaseResults" class="empty">Selecione produto e versão para buscar notas de release.</div>
@@ -2011,15 +2012,20 @@
   document.getElementById('releaseSearchBtn')?.addEventListener('click',async()=>{
     const prod=document.getElementById('releaseProductSelect').value;
     const term=document.getElementById('releaseVersionInput').value.trim();
+    const mod=document.getElementById('releaseModuleInput').value.trim();
     const results=document.getElementById('releaseResults');
     results.innerHTML='Buscando...';
     try{
-      const url=`/api/release/search?product=${encodeURIComponent(prod)}&term=${encodeURIComponent(term)}`;
+      const url=`/api/release/search?product=${encodeURIComponent(prod)}&term=${encodeURIComponent(term)}&module=${encodeURIComponent(mod)}`;
       const res=await fetch(url);
       const data=await res.json();
       if(!data.success) throw new Error(data.error||'Erro');
+      const items = Array.isArray(data.items) ? data.items.map(it=>`<div style="margin:6px 0;padding:8px;border:1px solid var(--border);background:var(--card2);">
+        <a href="${it.url}" target="_blank" style="font-weight:600;">${it.title}</a><br>
+        <span style="font-size:12px;color:var(--muted);">${it.space} • ${it.type}</span>
+      </div>`).join('') : '';
       const links = data.output ? `<pre style="white-space:pre-wrap;font-size:12px;background:var(--card2);padding:8px;border:1px solid var(--border);max-height:300px;overflow:auto;">${data.output.slice(0,4000)}</pre>` : '';
-      results.innerHTML=`<div style="margin-top:12px;">${links}<div><a href="${data.confluenceUrl}" target="_blank">Abrir busca no Confluence para ${prod} - Nota de Release</a></div></div>`;
+      results.innerHTML=`<div style="margin-top:12px;">${items||links}<div><a href="${data.confluenceUrl}" target="_blank">Abrir busca no Confluence para ${prod} - Nota de Release</a></div></div>`;
     }catch(err){
       results.innerHTML=`<div style="color:var(--red);margin-top:12px;">Erro: ${err.message}</div>`;
     }

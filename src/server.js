@@ -561,27 +561,64 @@ app.post("/api/pipefy/webhook", (req, res) => {
 app.get("/api/release/search", (req, res) => {
   const product = (req.query.product || "").toString().toUpperCase();
   const term = (req.query.term || "").toString().trim();
+  const module = (req.query.module || "").toString().trim();
   if (!product || !["PI","P3"].includes(product)) {
     return res.status(400).json({ success: false, error: "Produto inválido. Use PI ou P3." });
   }
   const spaceMap = { PI: "PI1", P3: "P3" };
   const space = spaceMap[product];
-  const query = `Nota de Release${term ? " " + term : ""}`;
+  const parts = [
+    "type=page",
+    `space=${space}`,
+    'text ~ "Nota de Release"'
+  ];
+  if (term) parts.push(`text ~ "${term.replace(/"/g, '\\"')}"`);
+  if (module) parts.push(`text ~ "${module.replace(/"/g, '\\"')}"`);
+  // recency to avoid huge scans
+  parts.push('lastmodified >= now("-90d")');
+  const cql = parts.join(" AND ");
   let output = "";
+  let items = [];
   try {
-    const result = spawnSync("twg", ["rovo", "search", query, "--limit", "10"], { encoding: "utf-8", timeout: 15000 });
+    const args = ["confluence","search","query","--cql",cql,"--limit","10","--excerpt"];
+    const result = spawnSync("twg", args, { encoding: "utf-8", timeout: 15000 });
     if (result.error) {
-      // twg não disponível no container; retorna apenas link
       output = "TWG não disponível neste ambiente. Abra o link do Confluence para buscar.";
     } else {
       output = result.stdout || "";
+      // parse simple items: lines with URL
+      const lines = output.split("\n");
+      for (let i=0;i<lines.length;i++){
+        const line=lines[i].trim();
+        if (line.startsWith("http")){
+          // previous line may be title
+          const title = lines[i-1]?.trim() || "Resultado";
+          items.push({ title, url: line, space, type: "page" });
+        } else if (line.match(/^https?:\/\//)) {
+          const title = lines[i-1]?.trim() || "Resultado";
+          items.push({ title, url: line, space, type: "page" });
+        }
+      }
+      // fallback parse: capture https URLs
+      const urlRegex = /https:\/\/aztecnologia\.atlassian\.net\/wiki\/[^\s]+/g;
+      const found = [...output.matchAll(urlRegex)];
+      // dedupe
+      const seen = new Set(items.map(i=>i.url));
+      for (const m of found){
+        const url = m[0];
+        if (!seen.has(url)){
+          items.push({ title: "Confluence", url, space, type: "page" });
+          seen.add(url);
+        }
+      }
     }
   } catch (err) {
     console.error("twg search error:", err);
     output = "Busca TWG indisponível: " + err.message;
   }
-  const confluenceUrl = `https://aztecnologia.atlassian.net/wiki/spaces/${space}/search?queryString=${encodeURIComponent(query)}`;
-  return res.json({ success: true, product, space, term, query, output, confluenceUrl });
+  const queryText = `Nota de Release${term ? " "+term : ""}${module ? " "+module : ""}`;
+  const confluenceUrl = `https://aztecnologia.atlassian.net/wiki/spaces/${space}/search?queryString=${encodeURIComponent(queryText)}`;
+  return res.json({ success: true, product, space, term, module, cql, query: queryText, output, items, confluenceUrl });
 });
 
 // 404 JSON para rotas /api desconhecidas (nunca HTML)
