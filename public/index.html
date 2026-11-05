@@ -176,6 +176,7 @@
       <button class="secondary" id="toggleTable">Mostrar/Ocultar tabela</button>
       <button class="secondary" id="copyApi">Copiar URL da API</button>
       <button class="secondary" id="exportPdf">📄 Exportar PDF</button>
+      <button class="secondary" id="releaseNotesBtn">📰 Nota de Release</button>
       <span class="meta" id="hint" style="margin-left:auto;"></span>
     </div>
     <div id="errorBox"></div>
@@ -1986,5 +1987,43 @@
       </div>
     </div>
   </footer>
+  <div class="modal-backdrop" id="releaseNotesBackdrop">
+    <div class="modal" style="max-width:800px;">
+      <button class="close" id="releaseNotesClose">✕</button>
+      <h2>📰 Nota de Release</h2>
+      <div style="margin-bottom:12px;">
+        <label style="margin-right:8px;">Produto:</label>
+        <select id="releaseProductSelect" style="padding:6px 10px;border-radius:0;border:1px solid var(--border);background:var(--card);color:var(--text);">
+          <option value="PI">PI</option>
+          <option value="P3">P3</option>
+        </select>
+        <input id="releaseVersionInput" placeholder="Versão / termo (ex: 2.17.3)" style="margin-left:8px;padding:6px 10px;border-radius:0;border:1px solid var(--border);background:var(--card);color:var(--text);max-width:220px;" />
+        <button class="secondary" id="releaseSearchBtn" style="margin-left:8px;">Buscar</button>
+      </div>
+      <div id="releaseResults" class="empty">Selecione produto e versão para buscar notas de release.</div>
+    </div>
+  </div>
+  <script>
+  // Release Notes modal
+  document.getElementById('releaseNotesBtn')?.addEventListener('click',()=>{document.getElementById('releaseNotesBackdrop').classList.add('open');});
+  document.getElementById('releaseNotesClose')?.addEventListener('click',()=>{document.getElementById('releaseNotesBackdrop').classList.remove('open');});
+  document.getElementById('releaseNotesBackdrop')?.addEventListener('click',e=>{if(e.target.id==='releaseNotesBackdrop')document.getElementById('releaseNotesBackdrop').classList.remove('open');});
+  document.getElementById('releaseSearchBtn')?.addEventListener('click',async()=>{
+    const prod=document.getElementById('releaseProductSelect').value;
+    const term=document.getElementById('releaseVersionInput').value.trim();
+    const results=document.getElementById('releaseResults');
+    results.innerHTML='Buscando...';
+    try{
+      const url=`/api/release/search?product=${encodeURIComponent(prod)}&term=${encodeURIComponent(term)}`;
+      const res=await fetch(url);
+      const data=await res.json();
+      if(!data.success) throw new Error(data.error||'Erro');
+      const links = data.output ? `<pre style="white-space:pre-wrap;font-size:12px;background:var(--card2);padding:8px;border:1px solid var(--border);max-height:300px;overflow:auto;">${data.output.slice(0,4000)}</pre>` : '';
+      results.innerHTML=`<div style="margin-top:12px;">${links}<div><a href="${data.confluenceUrl}" target="_blank">Abrir busca no Confluence para ${prod} - Nota de Release</a></div></div>`;
+    }catch(err){
+      results.innerHTML=`<div style="color:var(--red);margin-top:12px;">Erro: ${err.message}</div>`;
+    }
+  });
+  </script>
 </body>
 </html>

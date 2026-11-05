@@ -1,6 +1,7 @@
 import express from "express";
 import path from "path";
 import { fileURLToPath } from "url";
+import { spawnSync } from "node:child_process";
 import { config, jiraAuthHeader } from "./config.js";
 import { fetchAbertos, fetchFilter, fetchIssuesByJql, normalizeIssue, DEFAULT_FIELDS, fetchIssueDetails, fetchComments, fetchWorklogs, fetchRecentActivity, fetchAttachmentMeta, jqlForScope, fetchProjects, jqlForProject, searchIssues, createComment } from "./jira.js";
 import { isPipefyConfigured, fetchPipe, fetchCards, createCardFromIssue, syncIssuesToPipefy } from "./pipefy.js";
@@ -554,6 +555,33 @@ app.post("/api/pipefy/webhook", (req, res) => {
   console.log("[pipefy webhook]", event, JSON.stringify(data).slice(0, 500));
   // TODO: mapear eventos (card.move, card.update) para atualizacoes no Jira
   res.status(200).json({ received: true, event });
+});
+
+// Release Notes TWG search
+app.get("/api/release/search", (req, res) => {
+  const product = (req.query.product || "").toString().toUpperCase();
+  const term = (req.query.term || "").toString().trim();
+  if (!product || !["PI","P3"].includes(product)) {
+    return res.status(400).json({ success: false, error: "Produto inválido. Use PI ou P3." });
+  }
+  const spaceMap = { PI: "PI1", P3: "P3" };
+  const space = spaceMap[product];
+  const query = `Nota de Release${term ? " " + term : ""}`;
+  let output = "";
+  try {
+    const result = spawnSync("twg", ["rovo", "search", query, "--limit", "10"], { encoding: "utf-8", timeout: 15000 });
+    if (result.error) {
+      // twg não disponível no container; retorna apenas link
+      output = "TWG não disponível neste ambiente. Abra o link do Confluence para buscar.";
+    } else {
+      output = result.stdout || "";
+    }
+  } catch (err) {
+    console.error("twg search error:", err);
+    output = "Busca TWG indisponível: " + err.message;
+  }
+  const confluenceUrl = `https://aztecnologia.atlassian.net/wiki/spaces/${space}/search?queryString=${encodeURIComponent(query)}`;
+  return res.json({ success: true, product, space, term, query, output, confluenceUrl });
 });
 
 // 404 JSON para rotas /api desconhecidas (nunca HTML)
