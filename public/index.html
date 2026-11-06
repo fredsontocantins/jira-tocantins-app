@@ -1997,7 +1997,13 @@
         <label style="margin-left:8px;margin-right:4px;">Módulo:</label>
         <input id="releaseModuleInput" placeholder="opcional" style="padding:6px 10px;border-radius:0;border:1px solid var(--border);background:var(--card);color:var(--text);max-width:160px;" />
         <label style="margin-left:8px;margin-right:4px;">Espaço:</label>
-        <input id="releaseSpaceInput" placeholder="opcional" style="padding:6px 10px;border-radius:0;border:1px solid var(--border);background:var(--card);color:var(--text);max-width:120px;" />
+        <select id="releaseSpaceSelect" style="padding:6px 10px;border-radius:0;border:1px solid var(--border);background:var(--card);color:var(--text);max-width:220px;">
+          <option value="">Todos</option>
+        </select>
+        <label style="margin-left:8px;margin-right:4px;">De:</label>
+        <input type="date" id="releaseDateFrom" style="padding:6px 10px;border-radius:0;border:1px solid var(--border);background:var(--card);color:var(--text);" />
+        <label style="margin-left:8px;margin-right:4px;">Até:</label>
+        <input type="date" id="releaseDateTo" style="padding:6px 10px;border-radius:0;border:1px solid var(--border);background:var(--card);color:var(--text);" />
         <button class="secondary" id="releaseSearchBtn" style="margin-left:4px;">Buscar</button>
       </div>
       <div id="releaseResults" class="empty">Digite um termo/versão para buscar notas de release em todos os espaços.</div>
@@ -2005,17 +2011,47 @@
   </div>
   <script>
   // Release Notes modal
-  document.getElementById('releaseNotesBtn')?.addEventListener('click',()=>{document.getElementById('releaseNotesBackdrop').classList.add('open');});
+  document.getElementById('releaseNotesBtn')?.addEventListener('click',async()=>{
+    const backdrop=document.getElementById('releaseNotesBackdrop');
+    backdrop.classList.add('open');
+    const sel=document.getElementById('releaseSpaceSelect');
+    if(sel && sel.options.length===1){
+      try{
+        const r=await fetch('/api/release/spaces');
+        const d=await r.json();
+        if(d.success && Array.isArray(d.spaces)){
+          d.spaces.forEach(s=>{
+            const o=document.createElement('option');
+            o.value=s.key;
+            o.textContent=`${s.name} (${s.key})`;
+            sel.appendChild(o);
+          });
+        }
+      }catch(e){console.error(e);}
+    }
+  });
   document.getElementById('releaseNotesClose')?.addEventListener('click',()=>{document.getElementById('releaseNotesBackdrop').classList.remove('open');});
   document.getElementById('releaseNotesBackdrop')?.addEventListener('click',e=>{if(e.target.id==='releaseNotesBackdrop')document.getElementById('releaseNotesBackdrop').classList.remove('open');});
   document.getElementById('releaseSearchBtn')?.addEventListener('click',async()=>{
     const term=document.getElementById('releaseTermInput').value.trim();
-    const mod=document.getElementById('releaseModuleInput').value.trim();
-    const space=document.getElementById('releaseSpaceInput').value.trim();
+    let mod=document.getElementById('releaseModuleInput').value.trim();
+    if(!mod || mod.toLowerCase()==='opcional') mod='';
+    const space=document.getElementById('releaseSpaceSelect').value.trim();
+    let dateFrom=document.getElementById('releaseDateFrom').value;
+    let dateTo=document.getElementById('releaseDateTo').value;
+    // normaliza datas no formato DD/MM/YYYY para YYYY-MM-DD
+    const norm=(v)=>{ if(!v) return ''; if(v.includes('/')){ const p=v.split('/'); if(p.length===3){ return `${p[2]}-${p[1].padStart(2,'0')}-${p[0].padStart(2,'0')}`; } } return v; };
+    dateFrom=norm(dateFrom); dateTo=norm(dateTo);
     const results=document.getElementById('releaseResults');
     results.innerHTML='Buscando...';
     try{
-      const url=`/api/release/search?term=${encodeURIComponent(term)}&module=${encodeURIComponent(mod)}&space=${encodeURIComponent(space)}`;
+      const params=new URLSearchParams();
+      if(term) params.set('term',term);
+      if(mod) params.set('module',mod);
+      if(space) params.set('space',space);
+      if(dateFrom) params.set('dateFrom',dateFrom);
+      if(dateTo) params.set('dateTo',dateTo);
+      const url=`/api/release/search?${params.toString()}`;
       const res=await fetch(url);
       const data=await res.json();
       if(!data.success) throw new Error(data.error||'Erro');

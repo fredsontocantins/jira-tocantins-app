@@ -558,11 +558,36 @@ app.post("/api/pipefy/webhook", (req, res) => {
   res.status(200).json({ received: true, event });
 });
 
+// Release Notes spaces list
+app.get("/api/release/spaces", (req, res) => {
+  try {
+    const args = ["confluence","space","list","--output","json","--limit","200"];
+    const result = spawnSync("/home/casa/.local/bin/twg", args, { encoding: "utf-8", timeout: 15000, env: { ...process.env, HOME: "/home/casa", PATH: "/home/casa/.local/bin:" + (process.env.PATH || "") } });
+    if (result.error || result.status !== 0) {
+      return res.status(502).json({ success: false, error: "TWG indisponível" });
+    }
+    let stdout = result.stdout || "";
+    if (!stdout.trim().startsWith("{")) {
+      const m = stdout.match(/stdout:\s*"([^"]+)"/);
+      if (m) stdout = fs.readFileSync(m[1], 'utf-8');
+    }
+    const data = JSON.parse(stdout);
+    const spaces = Array.isArray(data.data) ? data.data : data;
+    const items = spaces.map(s => ({ key: s.key, name: s.name, id: s.id, type: s.type, status: s.status })).filter(s => s.key && s.name);
+    return res.json({ success: true, spaces: items });
+  } catch (err) {
+    console.error("twg spaces error:", err);
+    return res.status(502).json({ success: false, error: err.message });
+  }
+});
+
 // Release Notes TWG search
 app.get("/api/release/search", (req, res) => {
   const term = (req.query.term || req.query.version || "").toString().trim();
   const module = (req.query.module || "").toString().trim();
   const space = (req.query.space || "").toString().trim();
+  const dateFrom = (req.query.dateFrom || "").toString().trim();
+  const dateTo = (req.query.dateTo || "").toString().trim();
   const parts = [
     "type=page",
     'title ~ "Nota de Release"'
@@ -570,7 +595,9 @@ app.get("/api/release/search", (req, res) => {
   if (term) parts.push(`title ~ "${term.replace(/"/g, '\\"')}"`);
   if (module) parts.push(`text ~ "${module.replace(/"/g, '\\"')}"`);
   if (space) parts.push(`space = "${space.replace(/"/g, '\\"')}"`);
-  parts.push('lastmodified >= now("-365d")');
+  if (dateFrom) parts.push(`lastmodified >= "${dateFrom}"`);
+  if (dateTo) parts.push(`lastmodified <= "${dateTo}"`);
+  if (!dateFrom && !dateTo) parts.push('lastmodified >= now("-365d")');
   const cql = parts.join(" AND ");
   let items = [];
   let errorMsg = null;
