@@ -562,7 +562,7 @@ app.post("/api/pipefy/webhook", (req, res) => {
 app.get("/api/release/spaces", (req, res) => {
   try {
     const args = ["confluence","space","list","--output","json","--limit","200"];
-    const result = spawnSync("/home/casa/.local/bin/twg", args, { encoding: "utf-8", timeout: 15000, env: { ...process.env, HOME: "/home/casa", PATH: "/home/casa/.local/bin:" + (process.env.PATH || "") } });
+    const result = spawnSync("/opt/twg/bin/twg", args, { encoding: "utf-8", timeout: 15000, env: { ...process.env, HOME: "/home/casa", PATH: "/opt/twg/bin:" + (process.env.PATH || "") } });
     if (result.error || result.status !== 0) {
       return res.status(502).json({ success: false, error: "TWG indisponível" });
     }
@@ -603,7 +603,7 @@ app.get("/api/release/search", (req, res) => {
   let errorMsg = null;
   try {
     const args = ["confluence","search","query","--cql",cql,"--limit","50","--output","json"];
-    const result = spawnSync("/home/casa/.local/bin/twg", args, { encoding: "utf-8", timeout: 15000, env: { ...process.env, HOME: "/home/casa", PATH: "/home/casa/.local/bin:" + (process.env.PATH || "") } });
+    const result = spawnSync("/opt/twg/bin/twg", args, { encoding: "utf-8", timeout: 15000, env: { ...process.env, HOME: "/home/casa", PATH: "/opt/twg/bin:" + (process.env.PATH || "") } });
     if (result.error || result.status !== 0) {
       errorMsg = result.error ? result.error.message : "TWG error";
     } else {
@@ -659,7 +659,7 @@ app.get("/api/release/content", (req, res) => {
   if (!id) return res.status(400).json({ success: false, error: "id obrigatório" });
   try {
     const args = ["confluence","content","get",id,"--format","html","--detail","full","--include-metadata","--output","json"];
-    const result = spawnSync("/home/casa/.local/bin/twg", args, { encoding: "utf-8", timeout: 15000, env: { ...process.env, HOME: "/home/casa", PATH: "/home/casa/.local/bin:" + (process.env.PATH || "") } });
+    const result = spawnSync("/opt/twg/bin/twg", args, { encoding: "utf-8", timeout: 15000, env: { ...process.env, HOME: "/home/casa", PATH: "/opt/twg/bin:" + (process.env.PATH || "") } });
     if (result.error || result.status !== 0) {
       return res.status(502).json({ success: false, error: "TWG indisponível", output: result.stdout || "" });
     }
@@ -683,7 +683,7 @@ app.get("/api/release/content", (req, res) => {
     if (!space && payload.spaceId) {
       try {
         const spArgs = ["confluence","space","get",payload.spaceId,"--output","json"];
-        const spRes = spawnSync("/home/casa/.local/bin/twg", spArgs, { encoding: "utf-8", timeout: 8000, env: { ...process.env, HOME: "/home/casa", PATH: "/home/casa/.local/bin:" + (process.env.PATH || "") } });
+        const spRes = spawnSync("/opt/twg/bin/twg", spArgs, { encoding: "utf-8", timeout: 8000, env: { ...process.env, HOME: "/home/casa", PATH: "/opt/twg/bin:" + (process.env.PATH || "") } });
         let spOut = spRes.stdout || "";
         if (!spOut.trim().startsWith("{")) {
           const m = spOut.match(/stdout:\s*"([^"]+)"/);
