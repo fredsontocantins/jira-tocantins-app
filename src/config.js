@@ -33,6 +33,13 @@ export const config = {
   },
   adminEmail: (process.env.ADMIN_EMAIL || "fredson.sousa@azi.com.br").toLowerCase(),
   dbPath: process.env.DB_PATH || "data/users.db",
+  confluence: {
+    baseUrl: (process.env.CONFLUENCE_BASE_URL || "").replace(/\/$/, ""),
+    email: process.env.CONFLUENCE_EMAIL || "",
+    token: process.env.CONFLUENCE_TOKEN || "",
+    cql: process.env.CONFLUENCE_CQL || 'type=page AND title ~ "Nota de Release"',
+    limit: parseInt(process.env.CONFLUENCE_LIMIT || "50", 10),
+  },
 };
 
 export function jiraAuthHeader() {
@@ -42,4 +49,8 @@ export function jiraAuthHeader() {
 
 export function pipefyAuthHeader() {
   return `Bearer ${config.pipefy.token}`;
+}
+
+export function confluenceAuthHeader(email, token) {
+  return "Basic " + Buffer.from(`${email}:${token}`).toString("base64");
 }
