@@ -119,6 +119,24 @@
     .drawer header h2 { margin:0; font-size:1rem; color:#fff; font-family:'Tomorrow',sans-serif; }
     .drawer .close { background:var(--accent); color:#fff; border:none; padding:4px 10px; border-radius:0; cursor:pointer; }
     .drawer .body { padding:14px 16px; overflow:auto; flex:1; }
+    .release-notes-drawer { width:560px; }
+    .release-notes-list { display:flex; flex-direction:column; gap:10px; }
+    .release-group { margin-bottom:6px; }
+    .release-group h4 { margin:0 0 6px; font-size:.8rem; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; padding-bottom:4px; border-bottom:1px solid var(--border); }
+    .release-item { border:1px solid var(--border); border-radius:0; padding:10px 12px; display:flex; flex-direction:column; gap:6px; background:var(--card2); }
+    .release-item .head { display:flex; justify-content:space-between; align-items:baseline; gap:8px; flex-wrap:wrap; }
+    .release-item .version { font-weight:700; color:var(--navy); font-family:'Tomorrow',sans-serif; font-size:.95rem; }
+    .release-item .date { font-size:.75rem; color:var(--muted); }
+    .release-item .system { font-size:.72rem; color:var(--accent); font-weight:600; text-transform:uppercase; letter-spacing:.04em; }
+    .release-item .summary { font-size:.82rem; color:var(--text); margin-top:2px; }
+    .release-item .actions { display:flex; gap:6px; margin-top:6px; flex-wrap:wrap; }
+    .release-item .actions a { font-size:.78rem; color:var(--accent); text-decoration:none; border:1px solid var(--accent); padding:2px 8px; border-radius:0; }
+    .release-item .actions a:hover { background:var(--accent); color:#fff; }
+    .release-empty { padding:20px; text-align:center; color:var(--muted); font-size:.85rem; }
+    .release-sync { width:100%; padding:8px 12px; border:1px solid var(--border); background:var(--card); color:var(--text); border-radius:0; cursor:pointer; font-size:.85rem; }
+    .release-sync:hover { border-color:var(--accent); }
+    .release-loading { font-size:.8rem; color:var(--muted); }
+    .release-error { color:var(--red); font-size:.8rem; margin-bottom:10px; }
     .lightbox.open { display:flex; }
     .lightbox img { max-width:90vw; max-height:75vh; object-fit:contain; border-radius:0; }
     .lightbox .lb-bar { display:flex; gap:10px; align-items:center; color:#fff; }
@@ -176,6 +194,7 @@
       <button class="secondary" id="toggleTable">Mostrar/Ocultar tabela</button>
       <button class="secondary" id="copyApi">Copiar URL da API</button>
       <button class="secondary" id="exportPdf">📄 Exportar PDF</button>
+      <button class="secondary" id="releaseNotesBtn" title="Notas de Release">📋 Notas de Release</button>
       <span class="meta" id="hint" style="margin-left:auto;"></span>
     </div>
     <div id="errorBox"></div>
@@ -298,6 +317,14 @@
     <header><h2 id="drawerTitle">Histórico da issue</h2><div style="display:flex;gap:6px;"><button class="close" id="xrayBtn" style="background:var(--accent);">🔎 Raio-X</button>
 <button class="close" id="xrayTwgBtn" style="background:var(--secondary);">🔎 TWG</button><button class="close" id="drawerClose">✕</button></div></header>
     <div class="body" id="drawerContent"></div>
+  </div>
+
+  <div class="drawer-backdrop" id="releaseNotesBackdrop"></div>
+  <div class="drawer release-notes-drawer" id="releaseNotesDrawer">
+    <header><h2 id="releaseNotesTitle">Notas de Release</h2><div style="display:flex;gap:6px;"><button id="releaseNotesSync" class="release-sync">↻ Sincronizar agora</button><button class="close" id="releaseNotesClose">✕</button></div></header>
+    <div class="body" id="releaseNotesBody">
+      <div class="release-loading">Carregando notas de release…</div>
+    </div>
   </div>
 
   <div class="drawer drawer-left" id="drawerLeft">
@@ -1311,6 +1338,89 @@
     document.getElementById("drawerClose").addEventListener("click", closeDrawer);
     document.getElementById("drawerLeftClose").addEventListener("click", closeDrawer);
     document.getElementById("drawerBackdrop").addEventListener("click", closeDrawer);
+
+    // --- Notas de Release (Confluence) ---
+    function openReleaseNotes(){
+      document.getElementById("releaseNotesDrawer").classList.add("open");
+      document.getElementById("releaseNotesBackdrop").classList.add("open");
+      loadReleaseNotes();
+    }
+    function closeReleaseNotes(){
+      document.getElementById("releaseNotesDrawer").classList.remove("open");
+      document.getElementById("releaseNotesBackdrop").classList.remove("open");
+    }
+    async function loadReleaseNotes(){
+      const body = document.getElementById("releaseNotesBody");
+      body.innerHTML = '<div class="release-loading">Carregando notas de release…</div>';
+      try {
+        const res = await fetch("/api/release-notes", { headers: { "Authorization": "Bearer " + token() } });
+        if (res.status === 503) { body.innerHTML = '<div class="release-error">Confluence não configurado no servidor.</div>'; return; }
+        if (res.status === 401) { body.innerHTML = '<div class="release-error">Sessão expirada. Faça login novamente.</div>'; return; }
+        if (!res.ok) { body.innerHTML = '<div class="release-error">Erro ao carregar notas de release.</div>'; return; }
+        const data = await res.json();
+        renderReleaseNotes(data && data.data ? data.data : []);
+      } catch (e) {
+        body.innerHTML = '<div class="release-error">Falha de rede ao carregar notas de release.</div>';
+      }
+    }
+    function renderReleaseNotes(notes){
+      const body = document.getElementById("releaseNotesBody");
+      if (!notes || notes.length === 0){
+        body.innerHTML = '<div class="release-empty">Nenhuma nota de release encontrada. <button class="release-sync" id="releaseNotesEmptySync">↻ Sincronizar agora</button></div>';
+        document.getElementById("releaseNotesEmptySync")?.addEventListener("click", syncReleaseNotes);
+        return;
+      }
+      // agrupa por sistema
+      const porSistema = {};
+      for (const n of notes) {
+        const sistema = n.system || "Sem sistema";
+        if (!porSistema[sistema]) porSistema[sistema] = [];
+        porSistema[sistema].push(n);
+      }
+      let html = '<div class="release-notes-list">';
+      for (const [sistema, items] of Object.entries(porSistema)) {
+        html += '<div class="release-group"><h4>' + escapeHtml(sistema) + '</h4>';
+        // ordena versões decrescentes
+        items.sort((a,b) => (b.version||"").localeCompare(a.version||""));
+        for (const n of items) {
+          html += '<div class="release-item">';
+          html += '<div class="head"><span class="version">' + escapeHtml(n.version || "Sem versão") + '</span><span class="date">' + (n.published_at ? new Date(n.published_at).toLocaleDateString("pt-BR") : "") + '</span></div>';
+          if (n.system) html += '<span class="system">' + escapeHtml(n.system) + '</span>';
+          if (n.title) html += '<div style="font-weight:600;font-size:.85rem;color:var(--text);margin:2px 0;">' + escapeHtml(n.title) + '</div>';
+          if (n.content_summary) html += '<div class="summary">' + escapeHtml(n.content_summary) + '</div>';
+          html += '<div class="actions"><a href="' + escapeHtml(n.url || "#") + '" target="_blank" rel="noopener">Abrir no Confluence ↗</a></div>';
+          html += '</div>';
+        }
+        html += '</div>';
+      }
+      html += '</div>';
+      body.innerHTML = html;
+    }
+    async function syncReleaseNotes(){
+      const btn = document.getElementById("releaseNotesSync");
+      const body = document.getElementById("releaseNotesBody");
+      const orig = btn.textContent;
+      btn.textContent = "Sincronizando…";
+      btn.disabled = true;
+      try {
+        const res = await fetch("/api/release-notes/sync", { method: "POST", headers: { "Authorization": "Bearer " + token() } });
+        if (res.status === 503) { body.innerHTML = '<div class="release-error">Confluence não configurado no servidor.</div>'; return; }
+        if (res.status === 401) { body.innerHTML = '<div class="release-error">Sessão expirada. Faça login novamente.</div>'; return; }
+        if (!res.ok) { body.innerHTML = '<div class="release-error">Erro ao sincronizar notas de release.</div>'; return; }
+        const data = await res.json();
+        loadReleaseNotes();
+      } catch (e) {
+        body.innerHTML = '<div class="release-error">Falha de rede ao sincronizar notas de release.</div>';
+      } finally {
+        btn.textContent = orig;
+        btn.disabled = false;
+      }
+    }
+    function escapeHtml(s){ if(s==null) return ""; return String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+    document.getElementById("releaseNotesBtn").addEventListener("click", openReleaseNotes);
+    document.getElementById("releaseNotesClose").addEventListener("click", closeReleaseNotes);
+    document.getElementById("releaseNotesBackdrop").addEventListener("click", closeReleaseNotes);
+    document.getElementById("releaseNotesSync").addEventListener("click", syncReleaseNotes);
 
     // Lightbox
     let lbIndex = 0;
