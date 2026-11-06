@@ -32,6 +32,26 @@ export function parseReleaseNote(page) {
   };
 }
 
+import { config, confluenceAuthHeader } from "./config.js";
+
 export async function fetchReleaseNotes() {
-  return [];
+  const { baseUrl, email, token, cql, limit } = config.confluence;
+  if (!baseUrl || !email || !token) {
+    throw new Error("Confluence nao configurado (CONFLUENCE_BASE_URL/EMAIL/TOKEN ausentes).");
+  }
+  const cleanBase = baseUrl.replace(/\/wiki$/, "");
+  const url = new URL(`${cleanBase}/wiki/api/v2/pages`);
+  url.searchParams.set("cql", cql);
+  url.searchParams.set("limit", String(limit));
+  const res = await fetch(url.toString(), {
+    headers: {
+      Authorization: confluenceAuthHeader(email, token),
+      Accept: "application/json",
+    },
+  });
+  if (!res.ok) {
+    throw new Error(`Confluence ${res.status}`);
+  }
+  const data = await res.json();
+  return data.results || [];
 }
