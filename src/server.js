@@ -7,6 +7,7 @@ import { isPipefyConfigured, fetchPipe, fetchCards, createCardFromIssue, syncIss
 import { login, logout, getSessionFromRequest, requireAuth, requireAdmin, requireProjectScope, filterProjectsForSession, requestedProject, issueProjectGuard, createSession } from "./auth.js";
 import { verifyGoogleIdToken } from "./googleAuth.js";
 import { upsertPendingUser, getUserByEmail, listUsers, approveUser, rejectUser, updateUserScope, isAdminEmail, ADMIN_EMAIL } from "./users.js";
+import { syncReleaseNotes, listReleaseNotes, getStatus } from "./release-notes.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -554,6 +555,36 @@ app.post("/api/pipefy/webhook", (req, res) => {
   console.log("[pipefy webhook]", event, JSON.stringify(data).slice(0, 500));
   // TODO: mapear eventos (card.move, card.update) para atualizacoes no Jira
   res.status(200).json({ received: true, event });
+});
+
+// ===== Notas de Release (Confluence) =====
+app.get("/api/release-notes", requireAuth, async (req, res) => {
+  try {
+    if (!getStatus().configurado) {
+      return res.status(503).json({ success: false, error: "Confluence não configurado (CONFLUENCE_EMAIL/CONFLUENCE_TOKEN ausentes)." });
+    }
+    const { version, system, limit } = req.query;
+    const data = listReleaseNotes({ version, system, limit });
+    res.json({ success: true, count: data.length, data, fetchedAt: new Date().toISOString() });
+  } catch (err) {
+    res.status(502).json({ success: false, error: err.message });
+  }
+});
+
+app.post("/api/release-notes/sync", requireAuth, async (req, res) => {
+  try {
+    if (!getStatus().configurado) {
+      return res.status(503).json({ success: false, error: "Confluence não configurado (CONFLUENCE_EMAIL/CONFLUENCE_TOKEN ausentes)." });
+    }
+    const resultado = await syncReleaseNotes();
+    res.json({ success: true, ...resultado, syncedAt: new Date().toISOString() });
+  } catch (err) {
+    res.status(err.status || 502).json({ success: false, error: err.message });
+  }
+});
+
+app.get("/api/release-notes/status", requireAuth, async (req, res) => {
+  res.json({ success: true, ...getStatus(), checkedAt: new Date().toISOString() });
 });
 
 // 404 JSON para rotas /api desconhecidas (nunca HTML)
