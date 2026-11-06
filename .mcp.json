@@ -17,6 +17,10 @@
         "CLAUDE_FLOW_MEMORY_BACKEND": "hybrid"
       },
       "autoStart": false
+    },
+    "context7": {
+      "type": "http",
+      "url": "https://mcp.context7.com/mcp"
     }
   }
 }

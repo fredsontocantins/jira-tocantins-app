@@ -4,6 +4,9 @@ import { fileURLToPath } from "url";
 import fs from "fs";
 import { config } from "./config.js";
 
+// Fonte única de verdade: config.adminEmail (lido do .env via config.js)
+export const ADMIN_EMAIL = config.adminEmail;
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dbPath = path.isAbsolute(config.dbPath)
   ? config.dbPath
@@ -27,8 +30,6 @@ db.exec(`
     approved_by TEXT
   );
 `);
-
-export const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || "fredson.sousa@azi.com.br").toLowerCase();
 
 function rowToUser(row) {
   if (!row) return null;
