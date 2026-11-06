@@ -1991,17 +1991,16 @@
     <div class="modal" style="max-width:800px;">
       <button class="close" id="releaseNotesClose">✕</button>
       <h2>📰 Nota de Release</h2>
-      <div style="margin-bottom:12px;">
-        <label style="margin-right:8px;">Produto:</label>
-        <select id="releaseProductSelect" style="padding:6px 10px;border-radius:0;border:1px solid var(--border);background:var(--card);color:var(--text);">
-          <option value="PI">PI</option>
-          <option value="P3">P3</option>
-        </select>
-        <input id="releaseVersionInput" placeholder="Versão / termo (ex: 2.17.3)" style="margin-left:8px;padding:6px 10px;border-radius:0;border:1px solid var(--border);background:var(--card);color:var(--text);max-width:180px;" />
-        <input id="releaseModuleInput" placeholder="Módulo (opcional)" style="margin-left:8px;padding:6px 10px;border-radius:0;border:1px solid var(--border);background:var(--card);color:var(--text);max-width:180px;" />
-        <button class="secondary" id="releaseSearchBtn" style="margin-left:8px;">Buscar</button>
+      <div style="margin-bottom:12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+        <label style="margin-right:4px;">Termo/Versão:</label>
+        <input id="releaseTermInput" placeholder="ex: 2.17.3 ou Nota de Release" style="padding:6px 10px;border-radius:0;border:1px solid var(--border);background:var(--card);color:var(--text);max-width:180px;" />
+        <label style="margin-left:8px;margin-right:4px;">Módulo:</label>
+        <input id="releaseModuleInput" placeholder="opcional" style="padding:6px 10px;border-radius:0;border:1px solid var(--border);background:var(--card);color:var(--text);max-width:160px;" />
+        <label style="margin-left:8px;margin-right:4px;">Espaço:</label>
+        <input id="releaseSpaceInput" placeholder="opcional" style="padding:6px 10px;border-radius:0;border:1px solid var(--border);background:var(--card);color:var(--text);max-width:120px;" />
+        <button class="secondary" id="releaseSearchBtn" style="margin-left:4px;">Buscar</button>
       </div>
-      <div id="releaseResults" class="empty">Selecione produto e versão para buscar notas de release.</div>
+      <div id="releaseResults" class="empty">Digite um termo/versão para buscar notas de release em todos os espaços.</div>
     </div>
   </div>
   <script>
@@ -2010,22 +2009,56 @@
   document.getElementById('releaseNotesClose')?.addEventListener('click',()=>{document.getElementById('releaseNotesBackdrop').classList.remove('open');});
   document.getElementById('releaseNotesBackdrop')?.addEventListener('click',e=>{if(e.target.id==='releaseNotesBackdrop')document.getElementById('releaseNotesBackdrop').classList.remove('open');});
   document.getElementById('releaseSearchBtn')?.addEventListener('click',async()=>{
-    const prod=document.getElementById('releaseProductSelect').value;
-    const term=document.getElementById('releaseVersionInput').value.trim();
+    const term=document.getElementById('releaseTermInput').value.trim();
     const mod=document.getElementById('releaseModuleInput').value.trim();
+    const space=document.getElementById('releaseSpaceInput').value.trim();
     const results=document.getElementById('releaseResults');
     results.innerHTML='Buscando...';
     try{
-      const url=`/api/release/search?product=${encodeURIComponent(prod)}&term=${encodeURIComponent(term)}&module=${encodeURIComponent(mod)}`;
+      const url=`/api/release/search?term=${encodeURIComponent(term)}&module=${encodeURIComponent(mod)}&space=${encodeURIComponent(space)}`;
       const res=await fetch(url);
       const data=await res.json();
       if(!data.success) throw new Error(data.error||'Erro');
       const items = Array.isArray(data.items) ? data.items.map(it=>`<div style="margin:6px 0;padding:8px;border:1px solid var(--border);background:var(--card2);">
-        <a href="${it.url}" target="_blank" style="font-weight:600;">${it.title}</a><br>
-        <span style="font-size:12px;color:var(--muted);">${it.space} • ${it.type}</span>
+        <div style="display:flex;justify-content:space-between;align-items:start;gap:8px;">
+          <div>
+            <div style="font-weight:600;">${it.title}</div>
+            <div style="font-size:12px;color:var(--muted);">${it.spaceKey || ''} • ${it.version || ''} • ${it.lastModified || ''}</div>
+            <div style="margin-top:4px;"><a href="${it.url}" target="_blank">Abrir no Confluence</a></div>
+          </div>
+          <button class="secondary" data-id="${it.id}" data-title="${it.title.replace(/"/g,'&quot;')}" style="padding:4px 8px;">Preview</button>
+        </div>
       </div>`).join('') : '';
-      const links = data.output ? `<pre style="white-space:pre-wrap;font-size:12px;background:var(--card2);padding:8px;border:1px solid var(--border);max-height:300px;overflow:auto;">${data.output.slice(0,4000)}</pre>` : '';
-      results.innerHTML=`<div style="margin-top:12px;">${items||links}<div><a href="${data.confluenceUrl}" target="_blank">Abrir busca no Confluence para ${prod} - Nota de Release</a></div></div>`;
+      results.innerHTML=`<div style="margin-top:12px;">${items||'<div class="empty">Nenhum resultado.</div>'}</div>`;
+      // bind preview buttons
+      results.querySelectorAll('button[data-id]').forEach(btn=>{
+        btn.addEventListener('click',async()=>{
+          const id=btn.getAttribute('data-id');
+          const title=btn.getAttribute('data-title');
+          results.innerHTML=`<div>Carregando conteúdo de ${title}...</div>`;
+          try{
+            const r=await fetch(`/api/release/content?id=${encodeURIComponent(id)}`);
+            const d=await r.json();
+            if(!d.success) throw new Error(d.error||'Erro');
+            const md=d.markdown||'';
+            const blob=new Blob([md],{type:'text/markdown'});
+            const urlD=URL.createObjectURL(blob);
+            const fname=(title.replace(/\s+/g,'_')||'release')+'.md';
+            results.innerHTML=`<div style="margin-top:12px;">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                <strong>Preview: ${title}</strong>
+                <div>
+                  <a href="${d.meta?.url||''}" target="_blank" class="secondary" style="padding:4px 8px;text-decoration:none;">Confluence</a>
+                  <a href="${urlD}" download="${fname}" class="secondary" style="padding:4px 8px;margin-left:6px;text-decoration:none;">Exportar .md</a>
+                </div>
+              </div>
+              <pre style="white-space:pre-wrap;background:var(--card2);padding:10px;border:1px solid var(--border);max-height:400px;overflow:auto;">${md}</pre>
+            </div>`;
+          }catch(e){
+            results.innerHTML=`<div style="color:var(--red);">Erro ao carregar: ${e.message}</div>`;
+          }
+        });
+      });
     }catch(err){
       results.innerHTML=`<div style="color:var(--red);margin-top:12px;">Erro: ${err.message}</div>`;
     }

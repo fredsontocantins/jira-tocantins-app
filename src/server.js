@@ -1,5 +1,6 @@
 import express from "express";
 import path from "path";
+import fs from "fs";
 import { fileURLToPath } from "url";
 import { spawnSync } from "node:child_process";
 import { config, jiraAuthHeader } from "./config.js";
@@ -559,66 +560,166 @@ app.post("/api/pipefy/webhook", (req, res) => {
 
 // Release Notes TWG search
 app.get("/api/release/search", (req, res) => {
-  const product = (req.query.product || "").toString().toUpperCase();
-  const term = (req.query.term || "").toString().trim();
+  const term = (req.query.term || req.query.version || "").toString().trim();
   const module = (req.query.module || "").toString().trim();
-  if (!product || !["PI","P3"].includes(product)) {
-    return res.status(400).json({ success: false, error: "Produto inválido. Use PI ou P3." });
-  }
-  const spaceMap = { PI: "PI1", P3: "P3" };
-  const space = spaceMap[product];
+  const space = (req.query.space || "").toString().trim();
   const parts = [
     "type=page",
-    `space=${space}`,
-    'text ~ "Nota de Release"'
+    'title ~ "Nota de Release"'
   ];
-  if (term) parts.push(`text ~ "${term.replace(/"/g, '\\"')}"`);
+  if (term) parts.push(`title ~ "${term.replace(/"/g, '\\"')}"`);
   if (module) parts.push(`text ~ "${module.replace(/"/g, '\\"')}"`);
-  // recency to avoid huge scans
-  parts.push('lastmodified >= now("-90d")');
+  if (space) parts.push(`space = "${space.replace(/"/g, '\\"')}"`);
+  parts.push('lastmodified >= now("-365d")');
   const cql = parts.join(" AND ");
-  let output = "";
   let items = [];
+  let errorMsg = null;
   try {
-    const args = ["confluence","search","query","--cql",cql,"--limit","10","--excerpt"];
-    const result = spawnSync("twg", args, { encoding: "utf-8", timeout: 15000 });
-    if (result.error) {
-      output = "TWG não disponível neste ambiente. Abra o link do Confluence para buscar.";
+    const args = ["confluence","search","query","--cql",cql,"--limit","50","--output","json"];
+    const result = spawnSync("/home/casa/.local/bin/twg", args, { encoding: "utf-8", timeout: 15000, env: { ...process.env, HOME: "/home/casa", PATH: "/home/casa/.local/bin:" + (process.env.PATH || "") } });
+    if (result.error || result.status !== 0) {
+      errorMsg = result.error ? result.error.message : "TWG error";
     } else {
-      output = result.stdout || "";
-      // parse simple items: lines with URL
-      const lines = output.split("\n");
-      for (let i=0;i<lines.length;i++){
-        const line=lines[i].trim();
-        if (line.startsWith("http")){
-          // previous line may be title
-          const title = lines[i-1]?.trim() || "Resultado";
-          items.push({ title, url: line, space, type: "page" });
-        } else if (line.match(/^https?:\/\//)) {
-          const title = lines[i-1]?.trim() || "Resultado";
-          items.push({ title, url: line, space, type: "page" });
+      let stdout = result.stdout || "";
+      // TWG may output a summary with JSON file path when stdout is not a TTY
+      if (!stdout.trim().startsWith("{")) {
+        const m = stdout.match(/stdout:\s*"([^"]+)"/);
+        if (m) {
+          try {
+            stdout = fs.readFileSync(m[1], 'utf-8');
+          } catch {}
         }
       }
-      // fallback parse: capture https URLs
-      const urlRegex = /https:\/\/aztecnologia\.atlassian\.net\/wiki\/[^\s]+/g;
-      const found = [...output.matchAll(urlRegex)];
-      // dedupe
-      const seen = new Set(items.map(i=>i.url));
-      for (const m of found){
-        const url = m[0];
-        if (!seen.has(url)){
-          items.push({ title: "Confluence", url, space, type: "page" });
-          seen.add(url);
+      try {
+        const data = JSON.parse(stdout);
+        const results = (data.data && Array.isArray(data.data.results)) ? data.data.results : (Array.isArray(data.results) ? data.results : (Array.isArray(data) ? data : []));
+        items = results.map(r => {
+          const title = r.title || r.content?.title || "";
+          const id = r.content?.id || r.id || "";
+          const rawUrl = r.url || "";
+          const spaceMatch = rawUrl.match(/\/spaces\/([^/]+)\/pages/);
+          const spaceKey = spaceMatch ? spaceMatch[1] : (r.spaceKey || "");
+          const url = rawUrl.startsWith("http") ? rawUrl : `https://aztecnologia.atlassian.net/wiki${rawUrl}`;
+          const lastModified = r.lastModified || r.updated || r.content?.history?.lastUpdated || "";
+          const versionMatch = title.match(/(?:v)?(\d+\.\d+(?:\.\d+)?[A-Z0-9\.\-]*) /i) || title.match(/(?:v)?(\d+\.\d+(?:\.\d+)?[A-Z0-9\.\-]*)$/i);
+          const version = versionMatch ? versionMatch[1] : "";
+          return { id, title, spaceKey, url, lastModified, version };
+        });
+      } catch (e) {
+        // fallback text parse
+        const lines = stdout.split("\n");
+        let currentTitle = null;
+        for (let i=0;i<lines.length;i++) {
+          const line = lines[i].trim();
+          const titleMatch = line.match(/^\d+\.\s+(.+?)\s+\[page\]$/);
+          if (titleMatch) { currentTitle = titleMatch[1].trim(); continue; }
+          if (line.startsWith("http") && currentTitle) {
+            items.push({ id:"", title: currentTitle, spaceKey: space, url: line, lastModified:"", version:"" });
+            currentTitle = null;
+          }
         }
       }
     }
   } catch (err) {
     console.error("twg search error:", err);
-    output = "Busca TWG indisponível: " + err.message;
+    errorMsg = err.message;
   }
-  const queryText = `Nota de Release${term ? " "+term : ""}${module ? " "+module : ""}`;
-  const confluenceUrl = `https://aztecnologia.atlassian.net/wiki/spaces/${space}/search?queryString=${encodeURIComponent(queryText)}`;
-  return res.json({ success: true, product, space, term, module, cql, query: queryText, output, items, confluenceUrl });
+  return res.json({ success: true, items, cql, term, module, space, error: errorMsg });
+});
+
+app.get("/api/release/content", (req, res) => {
+  const id = (req.query.id || "").toString().trim();
+  if (!id) return res.status(400).json({ success: false, error: "id obrigatório" });
+  try {
+    const args = ["confluence","content","get",id,"--format","html","--detail","full","--include-metadata","--output","json"];
+    const result = spawnSync("/home/casa/.local/bin/twg", args, { encoding: "utf-8", timeout: 15000, env: { ...process.env, HOME: "/home/casa", PATH: "/home/casa/.local/bin:" + (process.env.PATH || "") } });
+    if (result.error || result.status !== 0) {
+      return res.status(502).json({ success: false, error: "TWG indisponível", output: result.stdout || "" });
+    }
+    let stdout = result.stdout || "";
+    if (!stdout.trim().startsWith("{")) {
+      const m = stdout.match(/stdout:\s*"([^"]+)"/);
+      if (m) {
+        try {
+          stdout = fs.readFileSync(m[1], 'utf-8');
+        } catch {}
+      }
+    }
+    let data;
+    try { data = JSON.parse(stdout); } catch { data = { body: stdout }; }
+    const payload = data.data || data;
+    const title = payload.title || data.page?.title || "";
+    let space = payload.space?.key || data.space?.key || data.spaceKey || "";
+    let url = payload._links?.webui ? `https://aztecnologia.atlassian.net/wiki${payload._links.webui}` : (data.url || data.page?.url || "");
+    const lastModified = payload.metadata?.version?.createdAt || payload.history?.lastUpdated || data.lastModified || data.history?.lastUpdated || "";
+    // If space not present, try to resolve via spaceId
+    if (!space && payload.spaceId) {
+      try {
+        const spArgs = ["confluence","space","get",payload.spaceId,"--output","json"];
+        const spRes = spawnSync("/home/casa/.local/bin/twg", spArgs, { encoding: "utf-8", timeout: 8000, env: { ...process.env, HOME: "/home/casa", PATH: "/home/casa/.local/bin:" + (process.env.PATH || "") } });
+        let spOut = spRes.stdout || "";
+        if (!spOut.trim().startsWith("{")) {
+          const m = spOut.match(/stdout:\s*"([^"]+)"/);
+          if (m) { try { spOut = fs.readFileSync(m[1], 'utf-8'); } catch {} }
+        }
+        const spData = JSON.parse(spOut);
+        const spPayload = spData.data || spData;
+        space = spPayload.key || space;
+        // Build URL from space and id if possible
+        if (!url && space && payload.id) {
+          url = `https://aztecnologia.atlassian.net/wiki/spaces/${space}/pages/${payload.id}`;
+        }
+      } catch {}
+    }
+    // TWG content get body is in payload.body.value when detail full
+    let htmlBody = "";
+    if (payload.body && typeof payload.body === 'object') {
+      htmlBody = payload.body.value || "";
+    } else if (typeof payload.body === 'string') {
+      htmlBody = payload.body;
+    } else {
+      htmlBody = payload.content || data.body || data.content || "";
+    }
+    // Build markdown in GER pattern
+    const versionMatch = title.match(/(?:v)?(\d+\.\d+(?:\.\d+)?[A-Z0-9\.\-]*) /i) || title.match(/(?:v)?(\d+\.\d+(?:\.\d+)?[A-Z0-9\.\-]*)$/i);
+    const version = versionMatch ? versionMatch[1] : "";
+    const system = title.split(/[-v]/)[0].trim();
+    // Extract version date from HTML if present
+    let dateText = "";
+    const dateMatch = htmlBody.match(/<time[^>]*datetime="([^"]+)"/);
+    if (dateMatch) dateText = dateMatch[1];
+    const pubDate = dateText || lastModified;
+    // Extract first table rows for corrections
+    let tableRows = "";
+    const tableMatch = htmlBody.match(/<table[^>]*>[\s\S]*?<\/table>/i);
+    if (tableMatch) {
+      const rows = [...tableMatch[0].matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)];
+      const dataRows = rows.slice(1); // skip header
+      const extracted = dataRows.map(r => {
+        const cells = [...r[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)].map(c => {
+          let txt = c[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+          // decode basic entities
+          txt = txt.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'");
+          // truncate long descriptions
+          return txt.length > 300 ? txt.slice(0,297)+'…' : txt;
+        });
+        if (cells.length >= 2) {
+          const ticket = cells[0].replace(/\|/g,' ');
+          const desc = cells[1].replace(/\|/g,' ');
+          return `| ${ticket} | ${desc} |`;
+        }
+        return null;
+      }).filter(Boolean);
+      if (extracted.length) {
+        tableRows = "\n" + extracted.join("\n");
+      }
+    }
+    const markdown = `# ${system} ${version}\n# Nota de Release — v${version}\n**Data de publicação:** ${pubDate}\n## 1. Correções realizadas\n| Ticket | Descrição |\n|---|---|\n${tableRows}`;
+    return res.json({ success: true, markdown, html: htmlBody, meta: { space, title, url, lastModified, version } });
+  } catch (err) {
+    console.error("twg content error:", err);
+    return res.status(502).json({ success: false, error: err.message });
+  }
 });
 
 // 404 JSON para rotas /api desconhecidas (nunca HTML)
