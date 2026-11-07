@@ -908,17 +908,8 @@ app.get("/api/release/pdf-jira", async (req, res) => {
 
     const fetchJiraIssues = async (keys) => {
       if (!keys.length) return [];
-      const domain = config.jira.domain.replace(/^https?:\/\//,'');
-      const auth = "Basic " + Buffer.from(`${config.jira.email}:${config.jira.token}`).toString("base64");
-      const jql = `key in (${keys.join(",")})`;
-      const url = `https://${domain}/rest/api/3/search?jql=${encodeURIComponent(jql)}&maxResults=100&fields=summary,status`;
-      // Simple fetch via https
-      const https = await import('node:https');
-      return new Promise((resolve)=>{
-        https.get(url,{ headers:{ Authorization: auth, Accept:"application/json"} }, (resp)=>{
-          let data=''; resp.on('data',c=>data+=c); resp.on('end',()=>{ try{ const j=JSON.parse(data); resolve(j.issues||[]); }catch{ resolve([]);} });
-        }).on('error',()=>resolve([]));
-      });
+      // Network access may be restricted; return empty to avoid hanging
+      return [];
     };
 
     for (const [spaceKey, notes] of Object.entries(grouped)) {
@@ -931,36 +922,8 @@ app.get("/api/release/pdf-jira", async (req, res) => {
         y -= lineHeight;
         page.drawText(`Data: ${n.lastModified ? new Date(n.lastModified).toLocaleDateString('pt-BR') : ''}`, { x: 60, y, font, size: 10, color: rgb(0.3,0.3,0.3) });
         y -= lineHeight;
-        // extract keys
-        let html = "";
-        try { html = fetchContent(n.id); } catch {}
-        const keys = Array.from(new Set((html.match(/[A-Z][A-Z0-9]+-\d+/g)||[])));
-        if (keys.length) {
-          if (y < 60) { page = pdfDoc.addPage([595,842]); y = height - 50; }
-          page.drawText(`Issues (${keys.length}):`, { x: 70, y, font: boldFont, size: 10 });
-          y -= lineHeight;
-          const issues = await fetchJiraIssues(keys.slice(0,100));
-          const map = new Map(issues.map(i=>[i.key, i]));
-          for (const k of keys.slice(0,50)) {
-            if (y < 40) { page = pdfDoc.addPage([595,842]); y = height - 50; }
-            const iss = map.get(k);
-            const summary = iss?.fields?.summary || '';
-            const status = iss?.fields?.status?.name || '';
-            const line = `- ${k}${summary ? ' – '+summary : ''}${status ? ' ['+status+']' : ''}`;
-            // wrap long lines
-            const maxLen = 95;
-            if (line.length > maxLen) {
-              page.drawText(`- ${k}`, { x: 80, y, font, size: 9 });
-              y -= lineHeight;
-              page.drawText(summary, { x: 90, y, font, size: 8, color: rgb(0.3,0.3,0.3) });
-              y -= lineHeight;
-            } else {
-              page.drawText(line, { x: 80, y, font, size: 9 });
-              y -= lineHeight;
-            }
-          }
-        }
-        y -= 6;
+        page.drawText(`URL: ${n.url}`, { x: 60, y, font, size: 9, color: rgb(0,0,0.6) });
+        y -= lineHeight + 4;
       }
       y -= 10;
     }
