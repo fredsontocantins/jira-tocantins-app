@@ -177,6 +177,7 @@
       <button class="secondary" id="copyApi">Copiar URL da API</button>
       <button class="secondary" id="exportPdf">📄 Exportar PDF</button>
       <button class="secondary" id="releaseNotesBtn">📰 Nota de Release</button>
+      <button class="secondary" id="closedReportBtn">📊 Chamados Encerrados</button>
       <span class="meta" id="hint" style="margin-left:auto;"></span>
     </div>
     <div id="errorBox"></div>
@@ -2011,6 +2012,26 @@
       <div id="releaseResults" class="empty">Digite um termo/versão para buscar notas de release em todos os espaços.</div>
     </div>
   </div>
+
+  <div class="modal-backdrop" id="closedReportBackdrop">
+    <div class="modal" style="max-width:900px;">
+      <button class="close" id="closedReportClose">✕</button>
+      <h2>📊 Relatório de Chamados Encerrados</h2>
+      <div style="margin-bottom:12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+        <label style="margin-right:4px;">Cliente / Projeto:</label>
+        <select id="closedProjectSelect" style="padding:6px 10px;border-radius:0;border:1px solid var(--border);background:var(--card);color:var(--text);max-width:220px;">
+          <option value="">Carregando...</option>
+        </select>
+        <label style="margin-left:8px;margin-right:4px;">Período:</label>
+        <input type="date" id="closedDateFrom" style="padding:6px 10px;border-radius:0;border:1px solid var(--border);background:var(--card);color:var(--text);" />
+        <label style="margin-left:4px;margin-right:4px;">até</label>
+        <input type="date" id="closedDateTo" style="padding:6px 10px;border-radius:0;border:1px solid var(--border);background:var(--card);color:var(--text);" />
+        <button class="secondary" id="closedSearchBtn" style="margin-left:4px;">Buscar</button>
+        <button class="secondary" id="closedPdfBtn" style="margin-left:4px;">Gerar PDF</button>
+      </div>
+      <div id="closedResults" class="empty">Selecione projeto e período para buscar chamados encerrados.</div>
+    </div>
+  </div>
   <script>
   // Release Notes modal
   document.getElementById('releaseNotesBtn')?.addEventListener('click',async()=>{
@@ -2130,6 +2151,69 @@
     }catch(err){
       results.innerHTML=`<div style="color:var(--red);margin-top:12px;">Erro: ${err.message}</div>`;
     }
+  });
+
+  // Closed tickets report modal
+  document.getElementById('closedReportBtn')?.addEventListener('click', async ()=>{
+    const backdrop=document.getElementById('closedReportBackdrop');
+    backdrop.classList.add('open');
+    const sel=document.getElementById('closedProjectSelect');
+    if(sel && sel.options.length===1){
+      try{
+        const r=await fetch('/api/projects');
+        const d=await r.json();
+        sel.innerHTML='<option value="">Selecione</option>';
+        (d.projects||[]).forEach(p=>{
+          const o=document.createElement('option');
+          o.value=p.key;
+          o.textContent=`${p.name} (${p.key})`;
+          sel.appendChild(o);
+        });
+      }catch(e){console.error(e);}
+    }
+  });
+  document.getElementById('closedReportClose')?.addEventListener('click',()=>{document.getElementById('closedReportBackdrop').classList.remove('open');});
+  document.getElementById('closedReportBackdrop')?.addEventListener('click',e=>{if(e.target.id==='closedReportBackdrop')document.getElementById('closedReportBackdrop').classList.remove('open');});
+  document.getElementById('closedSearchBtn')?.addEventListener('click',async()=>{
+    const project=document.getElementById('closedProjectSelect').value.trim();
+    let dateFrom=document.getElementById('closedDateFrom').value;
+    let dateTo=document.getElementById('closedDateTo').value;
+    if(!project){alert('Selecione um projeto');return;}
+    const params=new URLSearchParams({project, dateFrom, dateTo});
+    const results=document.getElementById('closedResults');
+    results.innerHTML='Buscando...';
+    try{
+      const res=await fetch(`/api/chamados/encerrados?${params.toString()}`);
+      const data=await res.json();
+      if(!data.success) throw new Error(data.error||'Erro');
+      const items=data.items||[];
+      const rows=items.map(it=>`
+        <tr>
+          <td>${it.issuetype||''}</td>
+          <td>${it.project||''}</td>
+          <td>${it.sla||''}</td>
+          <td>${it.summary||''}</td>
+          <td>${it.reporter||''}</td>
+          <td>${it.priority||''}</td>
+          <td>${it.created||''}</td>
+          <td>${it.updated||''}</td>
+          <td>${it.resolutiondate||''}</td>
+          <td>${it.expirado||'Não'}</td>
+        </tr>`).join('');
+      results.innerHTML=`<div style="margin-top:12px;overflow:auto;"><table style="width:100%;font-size:.8rem;"><thead><tr>
+        <th>Tipo</th><th>Sistema</th><th>SLA</th><th>Summary</th><th>Reporter</th><th>Prioridade</th><th>Criado</th><th>Atualizado</th><th>Resolução</th><th>Expirado</th>
+      </tr></thead><tbody>${rows||'<tr><td colspan="10" style="text-align:center;">Nenhum resultado</td></tr>'}</tbody></table></div>`;
+    }catch(err){
+      results.innerHTML=`<div style="color:var(--red);">Erro: ${err.message}</div>`;
+    }
+  });
+  document.getElementById('closedPdfBtn')?.addEventListener('click',()=>{
+    const project=document.getElementById('closedProjectSelect').value.trim();
+    const dateFrom=document.getElementById('closedDateFrom').value;
+    const dateTo=document.getElementById('closedDateTo').value;
+    if(!project){alert('Selecione um projeto');return;}
+    const params=new URLSearchParams({project, dateFrom, dateTo});
+    window.open(`/api/chamados/encerrados/pdf?${params.toString()}`, '_blank');
   });
   </script>
 </body>

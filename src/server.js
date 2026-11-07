@@ -935,6 +935,89 @@ app.get("/api/release/pdf-jira", async (req, res) => {
   } catch(err){ console.error("pdf-jira error:",err); return res.status(502).json({success:false,error:err.message}); }
 });
 
+// Chamados encerrados
+app.get("/api/chamados/encerrados", async (req, res) => {
+  try {
+    const project = (req.query.project || "").toString().trim();
+    const dateFrom = (req.query.dateFrom || "").toString().trim();
+    const dateTo = (req.query.dateTo || "").toString().trim();
+    if (!project) return res.status(400).json({ success:false, error:"Projeto obrigatório" });
+    let jql = `project = "${project}" AND statusCategory = Done`;
+    if (dateFrom) jql += ` AND resolutiondate >= "${dateFrom}"`;
+    if (dateTo) jql += ` AND resolutiondate <= "${dateTo}"`;
+    const fields = "summary,issuetype,priority,reporter,created,updated,resolutiondate";
+    const issues = await fetchIssuesByJql(jql, fields, 200);
+    const items = (issues || []).map(i=>{
+      const f = i.fields || {};
+      return {
+        key: i.key,
+        issuetype: f.issuetype?.name || "",
+        project: f.project?.key || project,
+        sla: "",
+        summary: f.summary || "",
+        reporter: f.reporter?.displayName || f.reporter?.name || "",
+        priority: f.priority?.name || "",
+        created: f.created ? f.created.split('T')[0] : "",
+        updated: f.updated ? f.updated.split('T')[0] : "",
+        resolutiondate: f.resolutiondate ? f.resolutiondate.split('T')[0] : "",
+        expirado: "Não"
+      };
+    });
+    res.json({ success:true, items });
+  } catch(err){ console.error("chamados encerrados error:",err); res.status(502).json({success:false,error:err.message}); }
+});
+
+app.get("/api/chamados/encerrados/pdf", async (req, res) => {
+  try {
+    const project = (req.query.project || "").toString().trim();
+    const dateFrom = (req.query.dateFrom || "").toString().trim();
+    const dateTo = (req.query.dateTo || "").toString().trim();
+    if (!project) return res.status(400).json({ success:false, error:"Projeto obrigatório" });
+    let jql = `project = "${project}" AND statusCategory = Done`;
+    if (dateFrom) jql += ` AND resolutiondate >= "${dateFrom}"`;
+    if (dateTo) jql += ` AND resolutiondate <= "${dateTo}"`;
+    const fields = "summary,issuetype,priority,reporter,created,updated,resolutiondate";
+    const issues = await fetchIssuesByJql(jql, fields, 500);
+    const items = (issues || []).map(i=>{
+      const f = i.fields || {};
+      return {
+        issuetype: f.issuetype?.name || "",
+        project: f.project?.key || project,
+        sla: "",
+        summary: f.summary || "",
+        reporter: f.reporter?.displayName || f.reporter?.name || "",
+        priority: f.priority?.name || "",
+        created: f.created ? f.created.split('T')[0] : "",
+        updated: f.updated ? f.updated.split('T')[0] : "",
+        resolutiondate: f.resolutiondate ? f.resolutiondate.split('T')[0] : "",
+        expirado: "Não"
+      };
+    });
+    const pdfDoc = await PDFDocument.create();
+    const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    const bold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+    let page = pdfDoc.addPage([595,842]);
+    let {width,height}=page.getSize();
+    let y = height - 50;
+    page.drawText(`Relatório de Chamados Encerrados - Projeto ${project}`, {x:50,y,font:bold,size:16});
+    y -= 30;
+    if(dateFrom||dateTo) page.drawText(`Período: ${dateFrom||''} até ${dateTo||''}`, {x:50,y,font,size:12}); y-=20;
+    const headers=["Tipo","Sistema","SLA","Summary","Reporter","Prioridade","Criado","Atualizado","Resolução","Expirado"];
+    headers.forEach((h,i)=>page.drawText(h,{x:50+i*55,y,font:bold,size:9}));
+    y-=14;
+    for(const it of items){
+      if(y<60){page=pdfDoc.addPage([595,842]); y=height-50;}
+      const vals=[it.issuetype,it.project,it.sla,it.summary,it.reporter,it.priority,it.created,it.updated,it.resolutiondate,it.expirado];
+      vals.forEach((v,i)=>{const txt=String(v).slice(0,30); page.drawText(txt,{x:50+i*55,y,font,size:8});});
+      y-=12;
+    }
+    const pdfBytes=await pdfDoc.save();
+    res.setHeader('Content-Type','application/pdf');
+    res.setHeader('Content-Disposition',`attachment; filename="chamados-encerrados-${project}-${Date.now()}.pdf"`);
+    res.send(Buffer.from(pdfBytes));
+  } catch(err){ console.error("pdf encerrados error:",err); res.status(502).json({success:false,error:err.message}); }
+});
+
 // 404 JSON para rotas /api desconhecidas (nunca HTML)
 app.use("/api", (req, res) => {
   res.status(404).json({ success: false, error: `Rota não encontrada: ${req.method} ${req.originalUrl}` });
