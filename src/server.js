@@ -826,33 +826,51 @@ app.get("/api/release/pdf", async (req, res) => {
     const items = results.map(r=>{ const title=r.title||r.content?.title||""; const id=r.content?.id||r.id||""; const rawUrl=r.url||""; const sm=rawUrl.match(/\/spaces\/([^/]+)\/pages/); const spaceKey=sm?sm[1]:r.spaceKey||""; const url=rawUrl.startsWith("http")?rawUrl:`https://aztecnologia.atlassian.net/wiki${rawUrl}`; const lastModified=r.lastModified||r.updated||""; const vm=title.match(/(?:v)?(\d+\.\d+(?:\.\d+)?[A-Z0-9\.\-]*) /i)||title.match(/(?:v)?(\d+\.\d+(?:\.\d+)?[A-Z0-9\.\-]*)$/i); const version=vm?vm[1]:""; return {id,title,spaceKey,url,lastModified,version}; }).filter(i=>i.id);
     const grouped={}; items.forEach(i=>{(grouped[i.spaceKey]||=[]).push(i)}); Object.values(grouped).forEach(arr=>arr.sort((a,b)=>new Date(b.lastModified||0)-new Date(a.lastModified||0)));
     
-    // Generate PDF
+    // Helper to fetch content markdown
+    const fetchContent = async (id) => {
+      try {
+        const args = ["confluence","content","get",id,"--format","html","--detail","full","--include-metadata","--output","json"];
+        const r = spawnSync("/home/casa/.local/bin/twg", args, { encoding:"utf-8", timeout:10000, env:{...process.env, HOME:"/home/casa", PATH:"/home/casa/.local/bin:"+ (process.env.PATH||"")} });
+        if (r.error || r.status!==0) return "";
+        let out = r.stdout||"";
+        if (!out.trim().startsWith("{")) { const m=out.match(/stdout:\\s*"([^"]+)"/); if(m) out=fs.readFileSync(m[1],'utf-8'); }
+        const d = JSON.parse(out);
+        const payload = d.data||d;
+        const html = payload.body?.value || payload.body?.storage?.value || "";
+        // Simple strip tags
+        const text = html.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();
+        return text.slice(0,4000);
+      } catch { return ""; }
+    };
+    
+    // Generate PDF with content
     const pdfDoc = await PDFDocument.create();
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
     const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+    const drawWrapped = (page,y,txt,size=10)=>{ const maxW=500; const words=txt.split(' '); let line=''; let curY=y; for(const w of words){ if((line+w).length*size*0.6>maxW){ page.drawText(line,{x:50,y:curY,font,size}); curY-=size+2; line=w+' '; } else { line+=(w+' '); } } if(line) { page.drawText(line,{x:50,y:curY,font,size}); curY-=size+2; } return curY; };
     let page = pdfDoc.addPage([595,842]);
     let { width, height } = page.getSize();
     let y = height - 50;
-    const lineHeight = 14;
     
-    page.drawText("Notas de Release Confluence", { x: 50, y, font: boldFont, size: 18, color: rgb(0,0,0) });
+    page.drawText("Notas de Release Confluence - Conteúdo Completo", { x: 50, y, font: boldFont, size: 18, color: rgb(0,0,0) });
     y -= 30;
     
     for (const [spaceKey, notes] of Object.entries(grouped)) {
-      if (y < 100) { page = pdfDoc.addPage([595,842]); y = height - 50; }
-      page.drawText(`Espaço: ${spaceKey}`, { x: 50, y, font: boldFont, size: 14 });
-      y -= lineHeight + 6;
       for (const n of notes) {
-        if (y < 80) { page = pdfDoc.addPage([595,842]); y = height - 50; }
+        if (y < 120) { page = pdfDoc.addPage([595,842]); y = height - 50; }
+        page.drawText(`Espaço: ${spaceKey}`, { x: 50, y, font: boldFont, size: 14 });
+        y -= 20;
         const titleLine = `${n.title} ${n.version ? 'v'+n.version : ''}`;
-        page.drawText(titleLine, { x: 60, y, font, size: 12 });
-        y -= lineHeight;
-        page.drawText(`Data: ${n.lastModified ? new Date(n.lastModified).toLocaleDateString('pt-BR') : ''}`, { x: 60, y, font, size: 10, color: rgb(0.3,0.3,0.3) });
-        y -= lineHeight;
-        page.drawText(`URL: ${n.url}`, { x: 60, y, font, size: 9, color: rgb(0,0,0.6) });
-        y -= lineHeight + 4;
+        page.drawText(titleLine, { x: 50, y, font: boldFont, size: 12 });
+        y -= 16;
+        page.drawText(`Data: ${n.lastModified ? new Date(n.lastModified).toLocaleDateString('pt-BR') : ''} | ${n.url}`, { x: 50, y, font, size: 9, color: rgb(0.3,0.3,0.3) });
+        y -= 14;
+        const content = await fetchContent(n.id);
+        if(content){
+          y = drawWrapped(page,y,content,9);
+        }
+        y -= 20;
       }
-      y -= 10;
     }
     
     const pdfBytes = await pdfDoc.save();
