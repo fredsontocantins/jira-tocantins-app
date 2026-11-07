@@ -939,12 +939,25 @@ app.get("/api/release/pdf-jira", async (req, res) => {
           if (y < 60) { page = pdfDoc.addPage([595,842]); y = height - 50; }
           page.drawText(`Issues (${keys.length}):`, { x: 70, y, font: boldFont, size: 10 });
           y -= lineHeight;
-          // sync fetch issues
-          // For simplicity list keys
-          for (const k of keys.slice(0,20)) {
+          const issues = await fetchJiraIssues(keys.slice(0,100));
+          const map = new Map(issues.map(i=>[i.key, i]));
+          for (const k of keys.slice(0,50)) {
             if (y < 40) { page = pdfDoc.addPage([595,842]); y = height - 50; }
-            page.drawText(`- ${k}`, { x: 80, y, font, size: 9 });
-            y -= lineHeight;
+            const iss = map.get(k);
+            const summary = iss?.fields?.summary || '';
+            const status = iss?.fields?.status?.name || '';
+            const line = `- ${k}${summary ? ' – '+summary : ''}${status ? ' ['+status+']' : ''}`;
+            // wrap long lines
+            const maxLen = 95;
+            if (line.length > maxLen) {
+              page.drawText(`- ${k}`, { x: 80, y, font, size: 9 });
+              y -= lineHeight;
+              page.drawText(summary, { x: 90, y, font, size: 8, color: rgb(0.3,0.3,0.3) });
+              y -= lineHeight;
+            } else {
+              page.drawText(line, { x: 80, y, font, size: 9 });
+              y -= lineHeight;
+            }
           }
         }
         y -= 6;
