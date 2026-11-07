@@ -862,6 +862,103 @@ app.get("/api/release/pdf", async (req, res) => {
   } catch(err){ console.error("pdf error:",err); return res.status(502).json({success:false,error:err.message}); }
 });
 
+// Release Notes PDF Jira enrichment
+app.get("/api/release/pdf-jira", async (req, res) => {
+  try {
+    const term = (req.query.term || "").toString().trim();
+    const space = (req.query.space || "").toString().trim();
+    const dateFrom = (req.query.dateFrom || "").toString().trim();
+    const dateTo = (req.query.dateTo || "").toString().trim();
+    const parts = ["type=page",'title ~ "Nota de Release"'];
+    if (term) parts.push(`title ~ "${term.replace(/"/g,'\\"')}"`);
+    if (space) parts.push(`space = "${space.replace(/"/g,'\\"')}"`);
+    if (dateFrom) parts.push(`lastmodified >= "${dateFrom}"`);
+    if (dateTo) parts.push(`lastmodified <= "${dateTo}"`);
+    if (!dateFrom && !dateTo) parts.push('lastmodified >= now("-365d")');
+    const cql = parts.join(" AND ");
+    const args = ["confluence","search","query","--cql",cql,"--limit","50","--output","json"];
+    const result = spawnSync("/home/casa/.local/bin/twg", args, { encoding:"utf-8", timeout:15000, env:{...process.env, HOME:"/home/casa", PATH:"/home/casa/.local/bin:"+ (process.env.PATH||"")} });
+    if (result.error || result.status!==0) return res.status(502).json({success:false,error:"TWG indisponível"});
+    let stdout = result.stdout||"";
+    if (!stdout.trim().startsWith("{")) { const m=stdout.match(/stdout:\\s*"([^"]+)"/); if(m) stdout=fs.readFileSync(m[1],'utf-8'); }
+    const data = JSON.parse(stdout);
+    const results = (data.data&&Array.isArray(data.data.results))?data.data.results:Array.isArray(data.results)?data.results:[];
+    const items = results.map(r=>{ const title=r.title||r.content?.title||""; const id=r.content?.id||r.id||""; const rawUrl=r.url||""; const sm=rawUrl.match(/\/spaces\/([^/]+)\/pages/); const spaceKey=sm?sm[1]:r.spaceKey||""; const url=rawUrl.startsWith("http")?rawUrl:`https://aztecnologia.atlassian.net/wiki${rawUrl}`; const lastModified=r.lastModified||r.updated||""; const vm=title.match(/(?:v)?(\d+\.\d+(?:\.\d+)?[A-Z0-9\.\-]*) /i)||title.match(/(?:v)?(\d+\.\d+(?:\.\d+)?[A-Z0-9\.\-]*)$/i); const version=vm?vm[1]:""; return {id,title,spaceKey,url,lastModified,version}; }).filter(i=>i.id);
+    const grouped={}; items.forEach(i=>{(grouped[i.spaceKey]||=[]).push(i)}); Object.values(grouped).forEach(arr=>arr.sort((a,b)=>new Date(b.lastModified||0)-new Date(a.lastModified||0)));
+
+    const pdfDoc = await PDFDocument.create();
+    const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+    let page = pdfDoc.addPage([595,842]);
+    let { width, height } = page.getSize();
+    let y = height - 50;
+    const lineHeight = 14;
+
+    page.drawText("Notas de Release - Itens Jira", { x: 50, y, font: boldFont, size: 18 });
+    y -= 30;
+
+    // Helper to fetch content and extract keys
+    const fetchContent = (id) => {
+      const args2 = ["confluence","content","get",id,"--format","html","--detail","full","--include-metadata","--output","json"];
+      const r = spawnSync("/home/casa/.local/bin/twg", args2, { encoding:"utf-8", timeout:10000, env:{...process.env, HOME:"/home/casa", PATH:"/home/casa/.local/bin:"+ (process.env.PATH||"")} });
+      let out = r.stdout||"";
+      if (!out.trim().startsWith("{")) { const m=out.match(/stdout:\\s*"([^"]+)"/); if(m) out=fs.readFileSync(m[1],'utf-8'); }
+      try { const d=JSON.parse(out); const payload = d.data?.page || d.data || d; const html = payload.body?.storage?.value || payload.body?.value || ""; return html; } catch { return ""; }
+    };
+
+    const fetchJiraIssues = async (keys) => {
+      if (!keys.length) return [];
+      const domain = config.jira.domain.replace(/^https?:\/\//,'');
+      const auth = "Basic " + Buffer.from(`${config.jira.email}:${config.jira.token}`).toString("base64");
+      const jql = `key in (${keys.join(",")})`;
+      const url = `https://${domain}/rest/api/3/search?jql=${encodeURIComponent(jql)}&maxResults=100&fields=summary,status`;
+      // Simple fetch via https
+      const https = await import('node:https');
+      return new Promise((resolve)=>{
+        https.get(url,{ headers:{ Authorization: auth, Accept:"application/json"} }, (resp)=>{
+          let data=''; resp.on('data',c=>data+=c); resp.on('end',()=>{ try{ const j=JSON.parse(data); resolve(j.issues||[]); }catch{ resolve([]);} });
+        }).on('error',()=>resolve([]));
+      });
+    };
+
+    for (const [spaceKey, notes] of Object.entries(grouped)) {
+      if (y < 120) { page = pdfDoc.addPage([595,842]); y = height - 50; }
+      page.drawText(`Espaço: ${spaceKey}`, { x: 50, y, font: boldFont, size: 14 });
+      y -= lineHeight + 6;
+      for (const n of notes) {
+        if (y < 100) { page = pdfDoc.addPage([595,842]); y = height - 50; }
+        page.drawText(`${n.title} ${n.version ? 'v'+n.version : ''}`, { x: 60, y, font, size: 12 });
+        y -= lineHeight;
+        page.drawText(`Data: ${n.lastModified ? new Date(n.lastModified).toLocaleDateString('pt-BR') : ''}`, { x: 60, y, font, size: 10, color: rgb(0.3,0.3,0.3) });
+        y -= lineHeight;
+        // extract keys
+        let html = "";
+        try { html = fetchContent(n.id); } catch {}
+        const keys = Array.from(new Set((html.match(/[A-Z][A-Z0-9]+-\d+/g)||[])));
+        if (keys.length) {
+          if (y < 60) { page = pdfDoc.addPage([595,842]); y = height - 50; }
+          page.drawText(`Issues (${keys.length}):`, { x: 70, y, font: boldFont, size: 10 });
+          y -= lineHeight;
+          // sync fetch issues
+          // For simplicity list keys
+          for (const k of keys.slice(0,20)) {
+            if (y < 40) { page = pdfDoc.addPage([595,842]); y = height - 50; }
+            page.drawText(`- ${k}`, { x: 80, y, font, size: 9 });
+            y -= lineHeight;
+          }
+        }
+        y -= 6;
+      }
+      y -= 10;
+    }
+
+    const pdfBytes = await pdfDoc.save();
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="release-notes-jira-${Date.now()}.pdf"`);
+    res.send(Buffer.from(pdfBytes));
+  } catch(err){ console.error("pdf-jira error:",err); return res.status(502).json({success:false,error:err.message}); }
+});
+
 // 404 JSON para rotas /api desconhecidas (nunca HTML)
 app.use("/api", (req, res) => {
   res.status(404).json({ success: false, error: `Rota não encontrada: ${req.method} ${req.originalUrl}` });
