@@ -562,7 +562,7 @@ app.post("/api/pipefy/webhook", (req, res) => {
 app.get("/api/release/spaces", (req, res) => {
   try {
     const args = ["confluence","space","list","--output","json","--limit","200"];
-    const result = spawnSync("/opt/twg/bin/twg", args, { encoding: "utf-8", timeout: 15000, env: { ...process.env, HOME: "/home/app", PATH: "/opt/twg/bin:" + (process.env.PATH || "") } });
+    const result = spawnSync("/home/casa/.local/bin/twg", args, { encoding: "utf-8", timeout: 15000, env: { ...process.env, HOME: "/home/casa", PATH: "/home/casa/.local/bin:" + (process.env.PATH || "") } });
     if (result.error || result.status !== 0) {
       return res.status(502).json({ success: false, error: "TWG indisponível" });
     }
@@ -603,7 +603,7 @@ app.get("/api/release/search", (req, res) => {
   let errorMsg = null;
   try {
     const args = ["confluence","search","query","--cql",cql,"--limit","50","--output","json"];
-    const result = spawnSync("/opt/twg/bin/twg", args, { encoding: "utf-8", timeout: 15000, env: { ...process.env, HOME: "/home/app", PATH: "/opt/twg/bin:" + (process.env.PATH || "") } });
+    const result = spawnSync("/home/casa/.local/bin/twg", args, { encoding: "utf-8", timeout: 15000, env: { ...process.env, HOME: "/home/casa", PATH: "/home/casa/.local/bin:" + (process.env.PATH || "") } });
     if (result.error || result.status !== 0) {
       errorMsg = result.error ? result.error.message : "TWG error";
     } else {
@@ -659,7 +659,7 @@ app.get("/api/release/content", (req, res) => {
   if (!id) return res.status(400).json({ success: false, error: "id obrigatório" });
   try {
     const args = ["confluence","content","get",id,"--format","html","--detail","full","--include-metadata","--output","json"];
-    const result = spawnSync("/opt/twg/bin/twg", args, { encoding: "utf-8", timeout: 15000, env: { ...process.env, HOME: "/home/app", PATH: "/opt/twg/bin:" + (process.env.PATH || "") } });
+    const result = spawnSync("/home/casa/.local/bin/twg", args, { encoding: "utf-8", timeout: 15000, env: { ...process.env, HOME: "/home/casa", PATH: "/home/casa/.local/bin:" + (process.env.PATH || "") } });
     if (result.error || result.status !== 0) {
       return res.status(502).json({ success: false, error: "TWG indisponível", output: result.stdout || "" });
     }
@@ -683,7 +683,7 @@ app.get("/api/release/content", (req, res) => {
     if (!space && payload.spaceId) {
       try {
         const spArgs = ["confluence","space","get",payload.spaceId,"--output","json"];
-        const spRes = spawnSync("/opt/twg/bin/twg", spArgs, { encoding: "utf-8", timeout: 8000, env: { ...process.env, HOME: "/home/app", PATH: "/opt/twg/bin:" + (process.env.PATH || "") } });
+        const spRes = spawnSync("/home/casa/.local/bin/twg", spArgs, { encoding: "utf-8", timeout: 8000, env: { ...process.env, HOME: "/home/casa", PATH: "/home/casa/.local/bin:" + (process.env.PATH || "") } });
         let spOut = spRes.stdout || "";
         if (!spOut.trim().startsWith("{")) {
           const m = spOut.match(/stdout:\s*"([^"]+)"/);
@@ -747,6 +747,85 @@ app.get("/api/release/content", (req, res) => {
     console.error("twg content error:", err);
     return res.status(502).json({ success: false, error: err.message });
   }
+});
+
+// Release Notes PDF report
+app.get("/api/release/report", async (req, res) => {
+  try {
+    const term = (req.query.term || "").toString().trim();
+    const module = (req.query.module || "").toString().trim();
+    const space = (req.query.space || "").toString().trim();
+    const dateFrom = (req.query.dateFrom || "").toString().trim();
+    const dateTo = (req.query.dateTo || "").toString().trim();
+    // Reuse search logic
+    const parts = ["type=page",'title ~ "Nota de Release"'];
+    if (term) parts.push(`title ~ "${term.replace(/"/g,'\\"')}"`);
+    if (module) parts.push(`text ~ "${module.replace(/"/g,'\\"')}"`);
+    if (space) parts.push(`space = "${space.replace(/"/g,'\\"')}"`);
+    if (dateFrom) parts.push(`lastmodified >= "${dateFrom}"`);
+    if (dateTo) parts.push(`lastmodified <= "${dateTo}"`);
+    if (!dateFrom && !dateTo) parts.push('lastmodified >= now("-365d")');
+    const cql = parts.join(" AND ");
+    const args = ["confluence","search","query","--cql",cql,"--limit","50","--output","json"];
+    const result = spawnSync("/home/casa/.local/bin/twg", args, { encoding: "utf-8", timeout: 15000, env: { ...process.env, HOME: "/home/casa", PATH: "/home/casa/.local/bin:" + (process.env.PATH || "") } });
+    if (result.error || result.status !== 0) {
+      return res.status(502).json({ success: false, error: "TWG indisponível" });
+    }
+    let stdout = result.stdout || "";
+    if (!stdout.trim().startsWith("{")) {
+      const m = stdout.match(/stdout:\s*"([^"]+)"/);
+      if (m) stdout = fs.readFileSync(m[1], 'utf-8');
+    }
+    const data = JSON.parse(stdout);
+    const results = (data.data && Array.isArray(data.data.results)) ? data.data.results : (Array.isArray(data.results) ? data.results : []);
+    const items = results.map(r => {
+      const title = r.title || r.content?.title || "";
+      const id = r.content?.id || r.id || "";
+      const rawUrl = r.url || "";
+      const spaceMatch = rawUrl.match(/\/spaces\/([^/]+)\/pages/);
+      const spaceKey = spaceMatch ? spaceMatch[1] : (r.spaceKey || "");
+      const url = rawUrl.startsWith("http") ? rawUrl : `https://aztecnologia.atlassian.net/wiki${rawUrl}`;
+      const lastModified = r.lastModified || r.updated || "";
+      const versionMatch = title.match(/(?:v)?(\d+\.\d+(?:\.\d+)?[A-Z0-9\.\-]*) /i) || title.match(/(?:v)?(\d+\.\d+(?:\.\d+)?[A-Z0-9\.\-]*)$/i);
+      const version = versionMatch ? versionMatch[1] : "";
+      return { id, title, spaceKey, url, lastModified, version };
+    }).filter(i=>i.id);
+    // Agrupar por espaço e ordenar por data
+    const grouped = {};
+    items.forEach(i=>{ (grouped[i.spaceKey] ||= []).push(i); });
+    Object.values(grouped).forEach(arr=>arr.sort((a,b)=> new Date(b.lastModified||0)-new Date(a.lastModified||0)));
+    return res.json({ success: true, grouped, total: items.length, cql });
+  } catch (err) {
+    console.error("report error:", err);
+    return res.status(502).json({ success: false, error: err.message });
+  }
+});
+
+// Release Notes PDF report agrupado por espaço
+app.get("/api/release/report", async (req, res) => {
+  try {
+    const term = (req.query.term || "").toString().trim();
+    const space = (req.query.space || "").toString().trim();
+    const dateFrom = (req.query.dateFrom || "").toString().trim();
+    const dateTo = (req.query.dateTo || "").toString().trim();
+    const parts = ["type=page",'title ~ "Nota de Release"'];
+    if (term) parts.push(`title ~ "${term.replace(/"/g,'\\"')}"`);
+    if (space) parts.push(`space = "${space.replace(/"/g,'\\"')}"`);
+    if (dateFrom) parts.push(`lastmodified >= "${dateFrom}"`);
+    if (dateTo) parts.push(`lastmodified <= "${dateTo}"`);
+    if (!dateFrom && !dateTo) parts.push('lastmodified >= now("-365d")');
+    const cql = parts.join(" AND ");
+    const args = ["confluence","search","query","--cql",cql,"--limit","50","--output","json"];
+    const result = spawnSync("/home/casa/.local/bin/twg", args, { encoding:"utf-8", timeout:15000, env:{...process.env, HOME:"/home/casa", PATH:"/home/casa/.local/bin:"+ (process.env.PATH||"")} });
+    if (result.error || result.status!==0) return res.status(502).json({success:false,error:"TWG indisponível"});
+    let stdout = result.stdout||"";
+    if (!stdout.trim().startsWith("{")) { const m=stdout.match(/stdout:\s*"([^"]+)"/); if(m) stdout=fs.readFileSync(m[1],'utf-8'); }
+    const data = JSON.parse(stdout);
+    const results = (data.data&&Array.isArray(data.data.results))?data.data.results:Array.isArray(data.results)?data.results:[];
+    const items = results.map(r=>{ const title=r.title||r.content?.title||""; const id=r.content?.id||r.id||""; const rawUrl=r.url||""; const sm=rawUrl.match(/\/spaces\/([^/]+)\/pages/); const spaceKey=sm?sm[1]:r.spaceKey||""; const url=rawUrl.startsWith("http")?rawUrl:`https://aztecnologia.atlassian.net/wiki${rawUrl}`; const lastModified=r.lastModified||r.updated||""; const vm=title.match(/(?:v)?(\d+\.\d+(?:\.\d+)?[A-Z0-9\.\-]*) /i)||title.match(/(?:v)?(\d+\.\d+(?:\.\d+)?[A-Z0-9\.\-]*)$/i); const version=vm?vm[1]:""; return {id,title,spaceKey,url,lastModified,version}; }).filter(i=>i.id);
+    const grouped={}; items.forEach(i=>{(grouped[i.spaceKey]||=[]).push(i)}); Object.values(grouped).forEach(arr=>arr.sort((a,b)=>new Date(b.lastModified||0)-new Date(a.lastModified||0)));
+    return res.json({success:true,grouped,total:items.length,cql});
+  } catch(err){ console.error("report error:",err); return res.status(502).json({success:false,error:err.message}); }
 });
 
 // 404 JSON para rotas /api desconhecidas (nunca HTML)
