@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "dotenv": "^16.4.0",
-    "express": "^4.21.0"
+    "express": "^4.21.0",
+    "pdf-lib": "^1.17.1"
   }
 }

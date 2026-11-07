@@ -2005,6 +2005,9 @@
         <label style="margin-left:8px;margin-right:4px;">Até:</label>
         <input type="date" id="releaseDateTo" style="padding:6px 10px;border-radius:0;border:1px solid var(--border);background:var(--card);color:var(--text);" />
         <button class="secondary" id="releaseSearchBtn" style="margin-left:4px;">Buscar</button>
+        <button class="secondary" id="releasePdfBtn" style="margin-left:4px;">Gerar PDF</button>
+        <button class="secondary" id="releasePdfBtn" style="margin-left:4px;">Gerar PDF</button>
+        <button class="secondary" id="releasePdfBtn" style="margin-left:4px;">Gerar PDF</button>
       </div>
       <div id="releaseResults" class="empty">Digite um termo/versão para buscar notas de release em todos os espaços.</div>
     </div>
@@ -2032,6 +2035,21 @@
   });
   document.getElementById('releaseNotesClose')?.addEventListener('click',()=>{document.getElementById('releaseNotesBackdrop').classList.remove('open');});
   document.getElementById('releaseNotesBackdrop')?.addEventListener('click',e=>{if(e.target.id==='releaseNotesBackdrop')document.getElementById('releaseNotesBackdrop').classList.remove('open');});
+  document.getElementById('releasePdfBtn')?.addEventListener('click',async()=>{
+    const term=document.getElementById('releaseTermInput').value.trim();
+    const space=document.getElementById('releaseSpaceSelect').value.trim();
+    let dateFrom=document.getElementById('releaseDateFrom').value;
+    let dateTo=document.getElementById('releaseDateTo').value;
+    const norm=(v)=>{ if(!v) return ''; if(v.includes('/')){ const p=v.split('/'); if(p.length===3){ return `${p[2]}-${p[1].padStart(2,'0')}-${p[0].padStart(2,'0')}`; } } return v; };
+    dateFrom=norm(dateFrom); dateTo=norm(dateTo);
+    const params=new URLSearchParams();
+    if(term) params.set('term',term);
+    if(space) params.set('space',space);
+    if(dateFrom) params.set('dateFrom',dateFrom);
+    if(dateTo) params.set('dateTo',dateTo);
+    const url=`/api/release/pdf?${params.toString()}`;
+    window.open(url,'_blank');
+  });
   document.getElementById('releaseSearchBtn')?.addEventListener('click',async()=>{
     const term=document.getElementById('releaseTermInput').value.trim();
     let mod=document.getElementById('releaseModuleInput').value.trim();

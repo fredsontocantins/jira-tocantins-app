@@ -3,6 +3,7 @@ import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
 import { spawnSync } from "node:child_process";
+import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { config, jiraAuthHeader } from "./config.js";
 import { fetchAbertos, fetchFilter, fetchIssuesByJql, normalizeIssue, DEFAULT_FIELDS, fetchIssueDetails, fetchComments, fetchWorklogs, fetchRecentActivity, fetchAttachmentMeta, jqlForScope, fetchProjects, jqlForProject, searchIssues, createComment } from "./jira.js";
 import { isPipefyConfigured, fetchPipe, fetchCards, createCardFromIssue, syncIssuesToPipefy } from "./pipefy.js";
@@ -802,7 +803,7 @@ app.get("/api/release/report", async (req, res) => {
 });
 
 // Release Notes PDF report agrupado por espaço
-app.get("/api/release/report", async (req, res) => {
+app.get("/api/release/pdf", async (req, res) => {
   try {
     const term = (req.query.term || "").toString().trim();
     const space = (req.query.space || "").toString().trim();
@@ -819,13 +820,46 @@ app.get("/api/release/report", async (req, res) => {
     const result = spawnSync("/home/casa/.local/bin/twg", args, { encoding:"utf-8", timeout:15000, env:{...process.env, HOME:"/home/casa", PATH:"/home/casa/.local/bin:"+ (process.env.PATH||"")} });
     if (result.error || result.status!==0) return res.status(502).json({success:false,error:"TWG indisponível"});
     let stdout = result.stdout||"";
-    if (!stdout.trim().startsWith("{")) { const m=stdout.match(/stdout:\s*"([^"]+)"/); if(m) stdout=fs.readFileSync(m[1],'utf-8'); }
+    if (!stdout.trim().startsWith("{")) { const m=stdout.match(/stdout:\\s*"([^"]+)"/); if(m) stdout=fs.readFileSync(m[1],'utf-8'); }
     const data = JSON.parse(stdout);
     const results = (data.data&&Array.isArray(data.data.results))?data.data.results:Array.isArray(data.results)?data.results:[];
-    const items = results.map(r=>{ const title=r.title||r.content?.title||""; const id=r.content?.id||r.id||""; const rawUrl=r.url||""; const sm=rawUrl.match(/\/spaces\/([^/]+)\/pages/); const spaceKey=sm?sm[1]:r.spaceKey||""; const url=rawUrl.startsWith("http")?rawUrl:`https://aztecnologia.atlassian.net/wiki${rawUrl}`; const lastModified=r.lastModified||r.updated||""; const vm=title.match(/(?:v)?(\d+\.\d+(?:\.\d+)?[A-Z0-9\.\-]*) /i)||title.match(/(?:v)?(\d+\.\d+(?:\.\d+)?[A-Z0-9\.\-]*)$/i); const version=vm?vm[1]:""; return {id,title,spaceKey,url,lastModified,version}; }).filter(i=>i.id);
+    const items = results.map(r=>{ const title=r.title||r.content?.title||""; const id=r.content?.id||r.id||""; const rawUrl=r.url||""; const sm=rawUrl.match(/\\/spaces\\/([^/]+)\\/pages/); const spaceKey=sm?sm[1]:r.spaceKey||""; const url=rawUrl.startsWith("http")?rawUrl:`https://aztecnologia.atlassian.net/wiki${rawUrl}`; const lastModified=r.lastModified||r.updated||""; const vm=title.match(/(?:v)?(\\d+\\.\\d+(?:\\.\\d+)?[A-Z0-9\\.\\-]*) /i)||title.match(/(?:v)?(\\d+\\.\\d+(?:\\.\\d+)?[A-Z0-9\\.\\-]*)$/i); const version=vm?vm[1]:""; return {id,title,spaceKey,url,lastModified,version}; }).filter(i=>i.id);
     const grouped={}; items.forEach(i=>{(grouped[i.spaceKey]||=[]).push(i)}); Object.values(grouped).forEach(arr=>arr.sort((a,b)=>new Date(b.lastModified||0)-new Date(a.lastModified||0)));
-    return res.json({success:true,grouped,total:items.length,cql});
-  } catch(err){ console.error("report error:",err); return res.status(502).json({success:false,error:err.message}); }
+    
+    // Generate PDF
+    const pdfDoc = await PDFDocument.create();
+    const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+    let page = pdfDoc.addPage([595,842]);
+    let { width, height } = page.getSize();
+    let y = height - 50;
+    const lineHeight = 14;
+    
+    page.drawText("Notas de Release Confluence", { x: 50, y, font: boldFont, size: 18, color: rgb(0,0,0) });
+    y -= 30;
+    
+    for (const [spaceKey, notes] of Object.entries(grouped)) {
+      if (y < 100) { page = pdfDoc.addPage([595,842]); y = height - 50; }
+      page.drawText(`Espaço: ${spaceKey}`, { x: 50, y, font: boldFont, size: 14 });
+      y -= lineHeight + 6;
+      for (const n of notes) {
+        if (y < 80) { page = pdfDoc.addPage([595,842]); y = height - 50; }
+        const titleLine = `${n.title} ${n.version ? 'v'+n.version : ''}`;
+        page.drawText(titleLine, { x: 60, y, font, size: 12 });
+        y -= lineHeight;
+        page.drawText(`Data: ${n.lastModified ? new Date(n.lastModified).toLocaleDateString('pt-BR') : ''}`, { x: 60, y, font, size: 10, color: rgb(0.3,0.3,0.3) });
+        y -= lineHeight;
+        page.drawText(`URL: ${n.url}`, { x: 60, y, font, size: 9, color: rgb(0,0,0.6) });
+        y -= lineHeight + 4;
+      }
+      y -= 10;
+    }
+    
+    const pdfBytes = await pdfDoc.save();
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="release-notes-${Date.now()}.pdf"`);
+    res.send(Buffer.from(pdfBytes));
+  } catch(err){ console.error("pdf error:",err); return res.status(502).json({success:false,error:err.message}); }
 });
 
 // 404 JSON para rotas /api desconhecidas (nunca HTML)
