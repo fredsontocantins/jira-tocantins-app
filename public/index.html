@@ -2019,9 +2019,7 @@
       <h2>📊 Relatório de Chamados Encerrados</h2>
       <div style="margin-bottom:12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
         <label style="margin-right:4px;">Cliente / Projeto:</label>
-        <select id="closedProjectSelect" style="padding:6px 10px;border-radius:0;border:1px solid var(--border);background:var(--card);color:var(--text);max-width:220px;">
-          <option value="">Carregando...</option>
-        </select>
+        <input id="closedProjectSelect" placeholder="ex: TO" style="padding:6px 10px;border-radius:0;border:1px solid var(--border);background:var(--card);color:var(--text);max-width:220px;" />
         <label style="margin-left:8px;margin-right:4px;">Período:</label>
         <input type="date" id="closedDateFrom" style="padding:6px 10px;border-radius:0;border:1px solid var(--border);background:var(--card);color:var(--text);" />
         <label style="margin-left:4px;margin-right:4px;">até</label>
@@ -2157,20 +2155,6 @@
   document.getElementById('closedReportBtn')?.addEventListener('click', async ()=>{
     const backdrop=document.getElementById('closedReportBackdrop');
     backdrop.classList.add('open');
-    const sel=document.getElementById('closedProjectSelect');
-    if(sel && sel.options.length===1){
-      try{
-        const r=await fetch('/api/projects');
-        const d=await r.json();
-        sel.innerHTML='<option value="">Selecione</option>';
-        (d.projects||[]).forEach(p=>{
-          const o=document.createElement('option');
-          o.value=p.key;
-          o.textContent=`${p.name} (${p.key})`;
-          sel.appendChild(o);
-        });
-      }catch(e){console.error(e);}
-    }
   });
   document.getElementById('closedReportClose')?.addEventListener('click',()=>{document.getElementById('closedReportBackdrop').classList.remove('open');});
   document.getElementById('closedReportBackdrop')?.addEventListener('click',e=>{if(e.target.id==='closedReportBackdrop')document.getElementById('closedReportBackdrop').classList.remove('open');});
