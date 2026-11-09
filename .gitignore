@@ -15,3 +15,9 @@ graphify-out/
 # Large binaries / vector DB
 ruvector.db
 test_export.pdf
+
+# Runtime app data (SQLite: users + release notes cache). Recriado automaticamente.
+data/
+
+# Helpers locais de desenvolvimento
+tmp-server.js
