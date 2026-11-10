@@ -4,6 +4,12 @@ import fs from "fs";
 import { fileURLToPath } from "url";
 import { spawnSync } from "node:child_process";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+
+const TWG = process.env.TWG_BIN || "/opt/twg/bin/twg";
+function runTwg(args){
+  const cmd = `sudo -u casa ${TWG} ${args.map(a=>`'${a.replace(/'/g,"'\\''")}'`).join(' ')}`;
+  return spawnSync('bash', ['-c', cmd], { encoding:'utf-8', timeout:15000, env:{...process.env, HOME:'/home/casa'} });
+}
 import { config, jiraAuthHeader } from "./config.js";
 import { fetchAbertos, fetchFilter, fetchIssuesByJql, normalizeIssue, DEFAULT_FIELDS, fetchIssueDetails, fetchComments, fetchWorklogs, fetchRecentActivity, fetchAttachmentMeta, jqlForScope, fetchProjects, jqlForProject, searchIssues, createComment } from "./jira.js";
 import { isPipefyConfigured, fetchPipe, fetchCards, createCardFromIssue, syncIssuesToPipefy } from "./pipefy.js";
@@ -563,7 +569,7 @@ app.post("/api/pipefy/webhook", (req, res) => {
 app.get("/api/release/spaces", (req, res) => {
   try {
     const args = ["confluence","space","list","--output","json","--limit","200"];
-    const result = spawnSync("/home/casa/.local/bin/twg", args, { encoding: "utf-8", timeout: 15000, env: { ...process.env, HOME: "/home/casa", PATH: "/home/casa/.local/bin:" + (process.env.PATH || "") } });
+    const result = spawnSync("/opt/twg/bin/twg", args, { encoding: "utf-8", timeout: 15000, env: { ...process.env, HOME: process.env.HOME || "/home/app", PATH: "/opt/twg/bin:" + (process.env.PATH || "") } });
     if (result.error || result.status !== 0) {
       return res.status(502).json({ success: false, error: "TWG indisponível" });
     }
@@ -604,7 +610,7 @@ app.get("/api/release/search", (req, res) => {
   let errorMsg = null;
   try {
     const args = ["confluence","search","query","--cql",cql,"--limit","50","--output","json"];
-    const result = spawnSync("/home/casa/.local/bin/twg", args, { encoding: "utf-8", timeout: 15000, env: { ...process.env, HOME: "/home/casa", PATH: "/home/casa/.local/bin:" + (process.env.PATH || "") } });
+    const result = spawnSync("/opt/twg/bin/twg", args, { encoding: "utf-8", timeout: 15000, env: { ...process.env, HOME: process.env.HOME || "/home/app", PATH: "/opt/twg/bin:" + (process.env.PATH || "") } });
     if (result.error || result.status !== 0) {
       errorMsg = result.error ? result.error.message : "TWG error";
     } else {
@@ -660,7 +666,7 @@ app.get("/api/release/content", (req, res) => {
   if (!id) return res.status(400).json({ success: false, error: "id obrigatório" });
   try {
     const args = ["confluence","content","get",id,"--format","html","--detail","full","--include-metadata","--output","json"];
-    const result = spawnSync("/home/casa/.local/bin/twg", args, { encoding: "utf-8", timeout: 15000, env: { ...process.env, HOME: "/home/casa", PATH: "/home/casa/.local/bin:" + (process.env.PATH || "") } });
+    const result = spawnSync("/opt/twg/bin/twg", args, { encoding: "utf-8", timeout: 15000, env: { ...process.env, HOME: process.env.HOME || "/home/app", PATH: "/opt/twg/bin:" + (process.env.PATH || "") } });
     if (result.error || result.status !== 0) {
       return res.status(502).json({ success: false, error: "TWG indisponível", output: result.stdout || "" });
     }
@@ -684,7 +690,7 @@ app.get("/api/release/content", (req, res) => {
     if (!space && payload.spaceId) {
       try {
         const spArgs = ["confluence","space","get",payload.spaceId,"--output","json"];
-        const spRes = spawnSync("/home/casa/.local/bin/twg", spArgs, { encoding: "utf-8", timeout: 8000, env: { ...process.env, HOME: "/home/casa", PATH: "/home/casa/.local/bin:" + (process.env.PATH || "") } });
+        const spRes = spawnSync("/opt/twg/bin/twg", spArgs, { encoding: "utf-8", timeout: 8000, env: { ...process.env, HOME: process.env.HOME || "/home/app", PATH: "/opt/twg/bin:" + (process.env.PATH || "") } });
         let spOut = spRes.stdout || "";
         if (!spOut.trim().startsWith("{")) {
           const m = spOut.match(/stdout:\s*"([^"]+)"/);
@@ -768,7 +774,7 @@ app.get("/api/release/report", async (req, res) => {
     if (!dateFrom && !dateTo) parts.push('lastmodified >= now("-365d")');
     const cql = parts.join(" AND ");
     const args = ["confluence","search","query","--cql",cql,"--limit","50","--output","json"];
-    const result = spawnSync("/home/casa/.local/bin/twg", args, { encoding: "utf-8", timeout: 15000, env: { ...process.env, HOME: "/home/casa", PATH: "/home/casa/.local/bin:" + (process.env.PATH || "") } });
+    const result = spawnSync("/opt/twg/bin/twg", args, { encoding: "utf-8", timeout: 15000, env: { ...process.env, HOME: process.env.HOME || "/home/app", PATH: "/opt/twg/bin:" + (process.env.PATH || "") } });
     if (result.error || result.status !== 0) {
       return res.status(502).json({ success: false, error: "TWG indisponível" });
     }
@@ -817,7 +823,7 @@ app.get("/api/release/pdf", async (req, res) => {
     if (!dateFrom && !dateTo) parts.push('lastmodified >= now("-365d")');
     const cql = parts.join(" AND ");
     const args = ["confluence","search","query","--cql",cql,"--limit","50","--output","json"];
-    const result = spawnSync("/home/casa/.local/bin/twg", args, { encoding:"utf-8", timeout:15000, env:{...process.env, HOME:"/home/casa", PATH:"/home/casa/.local/bin:"+ (process.env.PATH||"")} });
+    const result = spawnSync("/opt/twg/bin/twg", args, { encoding:"utf-8", timeout:15000, env:{...process.env, HOME: process.env.HOME || "/home/app", PATH:"/opt/twg/bin:"+ (process.env.PATH||"")} });
     if (result.error || result.status!==0) return res.status(502).json({success:false,error:"TWG indisponível"});
     let stdout = result.stdout||"";
     if (!stdout.trim().startsWith("{")) { const m=stdout.match(/stdout:\\s*"([^"]+)"/); if(m) stdout=fs.readFileSync(m[1],'utf-8'); }
@@ -830,7 +836,7 @@ app.get("/api/release/pdf", async (req, res) => {
     const fetchContent = async (id) => {
       try {
         const args = ["confluence","content","get",id,"--format","html","--detail","full","--include-metadata","--output","json"];
-        const r = spawnSync("/home/casa/.local/bin/twg", args, { encoding:"utf-8", timeout:10000, env:{...process.env, HOME:"/home/casa", PATH:"/home/casa/.local/bin:"+ (process.env.PATH||"")} });
+        const r = spawnSync("/opt/twg/bin/twg", args, { encoding:"utf-8", timeout:10000, env:{...process.env, HOME: process.env.HOME || "/home/app", PATH:"/opt/twg/bin:"+ (process.env.PATH||"")} });
         if (r.error || r.status!==0) return "";
         let out = r.stdout||"";
         if (!out.trim().startsWith("{")) { const m=out.match(/stdout:\\s*"([^"]+)"/); if(m) out=fs.readFileSync(m[1],'utf-8'); }
@@ -847,7 +853,8 @@ app.get("/api/release/pdf", async (req, res) => {
     const pdfDoc = await PDFDocument.create();
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
     const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-    const drawWrapped = (page,y,txt,size=10)=>{ const maxW=500; const words=txt.split(' '); let line=''; let curY=y; for(const w of words){ if((line+w).length*size*0.6>maxW){ page.drawText(line,{x:50,y:curY,font,size}); curY-=size+2; line=w+' '; } else { line+=(w+' '); } } if(line) { page.drawText(line,{x:50,y:curY,font,size}); curY-=size+2; } return curY; };
+    const safe = s => String(s||'').replace(/[^\u0020-\u00FF]/g,'');
+    const drawWrapped = (page,y,txt,size=10)=>{ const maxW=500; const words=safe(txt).split(' '); let line=''; let curY=y; for(const w of words){ if((line+w).length*size*0.6>maxW){ page.drawText(safe(line),{x:50,y:curY,font,size}); curY-=size+2; line=w+' '; } else { line+=(w+' '); } } if(line) { page.drawText(safe(line),{x:50,y:curY,font,size}); curY-=size+2; } return curY; };
     let page = pdfDoc.addPage([595,842]);
     let { width, height } = page.getSize();
     let y = height - 50;
@@ -858,12 +865,12 @@ app.get("/api/release/pdf", async (req, res) => {
     for (const [spaceKey, notes] of Object.entries(grouped)) {
       for (const n of notes) {
         if (y < 120) { page = pdfDoc.addPage([595,842]); y = height - 50; }
-        page.drawText(`Espaço: ${spaceKey}`, { x: 50, y, font: boldFont, size: 14 });
+        page.drawText(safe(`Espaço: ${spaceKey}`), { x: 50, y, font: boldFont, size: 14 });
         y -= 20;
         const titleLine = `${n.title} ${n.version ? 'v'+n.version : ''}`;
-        page.drawText(titleLine, { x: 50, y, font: boldFont, size: 12 });
+        page.drawText(safe(titleLine), { x: 50, y, font: boldFont, size: 12 });
         y -= 16;
-        page.drawText(`Data: ${n.lastModified ? new Date(n.lastModified).toLocaleDateString('pt-BR') : ''} | ${n.url}`, { x: 50, y, font, size: 9, color: rgb(0.3,0.3,0.3) });
+        page.drawText(safe(`Data: ${n.lastModified ? new Date(n.lastModified).toLocaleDateString('pt-BR') : ''} | ${n.url}`), { x: 50, y, font, size: 9, color: rgb(0.3,0.3,0.3) });
         y -= 14;
         const content = await fetchContent(n.id);
         if(content){
@@ -895,7 +902,7 @@ app.get("/api/release/pdf-jira", async (req, res) => {
     if (!dateFrom && !dateTo) parts.push('lastmodified >= now("-365d")');
     const cql = parts.join(" AND ");
     const args = ["confluence","search","query","--cql",cql,"--limit","50","--output","json"];
-    const result = spawnSync("/home/casa/.local/bin/twg", args, { encoding:"utf-8", timeout:15000, env:{...process.env, HOME:"/home/casa", PATH:"/home/casa/.local/bin:"+ (process.env.PATH||"")} });
+    const result = spawnSync("/opt/twg/bin/twg", args, { encoding:"utf-8", timeout:15000, env:{...process.env, HOME: process.env.HOME || "/home/app", PATH:"/opt/twg/bin:"+ (process.env.PATH||"")} });
     if (result.error || result.status!==0) return res.status(502).json({success:false,error:"TWG indisponível"});
     let stdout = result.stdout||"";
     if (!stdout.trim().startsWith("{")) { const m=stdout.match(/stdout:\\s*"([^"]+)"/); if(m) stdout=fs.readFileSync(m[1],'utf-8'); }
@@ -918,7 +925,7 @@ app.get("/api/release/pdf-jira", async (req, res) => {
     // Helper to fetch content and extract keys
     const fetchContent = (id) => {
       const args2 = ["confluence","content","get",id,"--format","html","--detail","full","--include-metadata","--output","json"];
-      const r = spawnSync("/home/casa/.local/bin/twg", args2, { encoding:"utf-8", timeout:10000, env:{...process.env, HOME:"/home/casa", PATH:"/home/casa/.local/bin:"+ (process.env.PATH||"")} });
+      const r = spawnSync("/opt/twg/bin/twg", args2, { encoding:"utf-8", timeout:10000, env:{...process.env, HOME: process.env.HOME || "/home/app", PATH:"/opt/twg/bin:"+ (process.env.PATH||"")} });
       let out = r.stdout||"";
       if (!out.trim().startsWith("{")) { const m=out.match(/stdout:\\s*"([^"]+)"/); if(m) out=fs.readFileSync(m[1],'utf-8'); }
       try { const d=JSON.parse(out); const payload = d.data?.page || d.data || d; const html = payload.body?.storage?.value || payload.body?.value || ""; return html; } catch { return ""; }
@@ -953,6 +960,100 @@ app.get("/api/release/pdf-jira", async (req, res) => {
   } catch(err){ console.error("pdf-jira error:",err); return res.status(502).json({success:false,error:err.message}); }
 });
 
+// ---- Chamados encerrados: campos, normalização e dashboard ----
+// customfield_10071 = "Sistemas" | customfield_10100 = "Classificar_Sistemas"
+// customfield_10084 = "SLA de Resolução" | customfield_10132 = "Vencimento SLA"
+const CHAMADOS_FIELDS = [
+  "summary", "issuetype", "priority", "reporter", "created", "updated",
+  "resolutiondate", "project",
+  "customfield_10071", "customfield_10100", "customfield_10084", "customfield_10132"
+].join(",");
+
+function optionLabel(v) {
+  if (v === null || v === undefined) return "";
+  if (typeof v === "string") return v;
+  if (Array.isArray(v)) return v.map(optionLabel).filter(Boolean).join(", ");
+  if (typeof v === "object") {
+    const base = v.value || v.name || "";
+    if (v.child) return [base, optionLabel(v.child)].filter(Boolean).join(" / ");
+    return base;
+  }
+  return String(v);
+}
+
+function formatSla(v) {
+  if (v === null || v === undefined || v === "") return "—";
+  if (typeof v === "string") return v.split("T")[0];
+  if (Array.isArray(v)) return v.length ? v.map(formatSla).filter(Boolean).join(", ") : "—";
+  if (typeof v === "object") {
+    const cycles = Array.isArray(v.completedCycles) ? v.completedCycles : [];
+    if (cycles.length) {
+      const c = cycles[cycles.length - 1];
+      const status = c.breached ? "Violado" : "Cumprido";
+      const elapsed = c.elapsedTime?.friendly || "";
+      const goal = c.goalDuration?.friendly || "";
+      return elapsed && goal ? `${status} (${elapsed}/${goal})` : status;
+    }
+    if (v.remainingTime?.friendly) return `Em andamento (restam ${v.remainingTime.friendly})`;
+    if (v.goalDuration?.friendly) return `Meta ${v.goalDuration.friendly}`;
+    return optionLabel(v) || "—";
+  }
+  return String(v);
+}
+
+function countBy(items, field) {
+  const out = {};
+  for (const it of items) {
+    const key = (it[field] || "Não informado").toString().trim() || "Não informado";
+    out[key] = (out[key] || 0) + 1;
+  }
+  return Object.entries(out)
+    .sort((a, b) => b[1] - a[1])
+    .map(([label, count]) => ({ label, count }));
+}
+
+function buildDashboard(items) {
+  return {
+    total: items.length,
+    porTipo: countBy(items, "issuetype"),
+    porPrioridade: countBy(items, "priority"),
+  };
+}
+
+function normalizeClosedIssue(issue, project) {
+  const f = issue.fields || {};
+  const sistema =
+    optionLabel(f.customfield_10071) ||
+    optionLabel(f.customfield_10100) ||
+    f.project?.key || project;
+  const resolutionRaw = f.resolutiondate || f.resolution?.date || "";
+  const cycles = Array.isArray(f.customfield_10084?.completedCycles) ? f.customfield_10084.completedCycles : [];
+  return {
+    key: issue.key,
+    issuetype: f.issuetype?.name || "",
+    project: f.project?.key || project,
+    sistema,
+    sla: formatSla(f.customfield_10084) !== "—" ? formatSla(f.customfield_10084) : formatSla(f.customfield_10132),
+    summary: f.summary || "",
+    reporter: f.reporter?.displayName || f.reporter?.name || "",
+    priority: f.priority?.name || "",
+    created: f.created ? f.created.split("T")[0] : "",
+    updated: f.updated ? f.updated.split("T")[0] : "",
+    resolutiondate: resolutionRaw ? resolutionRaw.split("T")[0] : "",
+    expirado: cycles.some((c) => c.breached) ? "Sim" : "Não",
+  };
+}
+
+async function fetchClosedIssues(project, dateFrom, dateTo, maxResults) {
+  let jql = `project = "${project}" AND statusCategory = Done`;
+  if (dateFrom) jql += ` AND resolved >= "${dateFrom}"`;
+  if (dateTo) jql += ` AND resolved <= "${dateTo}"`;
+  const issues = await fetchIssuesByJql(jql, CHAMADOS_FIELDS, maxResults);
+  const items = (issues || []).map((i) => normalizeClosedIssue(i, project));
+  items.sort((a, b) => String(b.resolutiondate || "").localeCompare(String(a.resolutiondate || "")));
+  return { items, jql };
+}
+
 // Chamados encerrados
 app.get("/api/chamados/encerrados", async (req, res) => {
   try {
@@ -960,28 +1061,8 @@ app.get("/api/chamados/encerrados", async (req, res) => {
     const dateFrom = (req.query.dateFrom || "").toString().trim();
     const dateTo = (req.query.dateTo || "").toString().trim();
     if (!project) return res.status(400).json({ success:false, error:"Projeto obrigatório" });
-    let jql = `project = "${project}" AND statusCategory = Done`;
-    if (dateFrom) jql += ` AND resolutiondate >= "${dateFrom}"`;
-    if (dateTo) jql += ` AND resolutiondate <= "${dateTo}"`;
-    const fields = "summary,issuetype,priority,reporter,created,updated,resolutiondate";
-    const issues = await fetchIssuesByJql(jql, fields, 200);
-    const items = (issues || []).map(i=>{
-      const f = i.fields || {};
-      return {
-        key: i.key,
-        issuetype: f.issuetype?.name || "",
-        project: f.project?.key || project,
-        sla: "",
-        summary: f.summary || "",
-        reporter: f.reporter?.displayName || f.reporter?.name || "",
-        priority: f.priority?.name || "",
-        created: f.created ? f.created.split('T')[0] : "",
-        updated: f.updated ? f.updated.split('T')[0] : "",
-        resolutiondate: f.resolutiondate ? f.resolutiondate.split('T')[0] : "",
-        expirado: "Não"
-      };
-    });
-    res.json({ success:true, items });
+    const { items, jql } = await fetchClosedIssues(project, dateFrom, dateTo, 200);
+    res.json({ success:true, total: items.length, dashboard: buildDashboard(items), items, jql });
   } catch(err){ console.error("chamados encerrados error:",err); res.status(502).json({success:false,error:err.message}); }
 });
 
@@ -991,47 +1072,147 @@ app.get("/api/chamados/encerrados/pdf", async (req, res) => {
     const dateFrom = (req.query.dateFrom || "").toString().trim();
     const dateTo = (req.query.dateTo || "").toString().trim();
     if (!project) return res.status(400).json({ success:false, error:"Projeto obrigatório" });
-    let jql = `project = "${project}" AND statusCategory = Done`;
-    if (dateFrom) jql += ` AND resolutiondate >= "${dateFrom}"`;
-    if (dateTo) jql += ` AND resolutiondate <= "${dateTo}"`;
-    const fields = "summary,issuetype,priority,reporter,created,updated,resolutiondate";
-    const issues = await fetchIssuesByJql(jql, fields, 500);
-    const items = (issues || []).map(i=>{
-      const f = i.fields || {};
-      return {
-        issuetype: f.issuetype?.name || "",
-        project: f.project?.key || project,
-        sla: "",
-        summary: f.summary || "",
-        reporter: f.reporter?.displayName || f.reporter?.name || "",
-        priority: f.priority?.name || "",
-        created: f.created ? f.created.split('T')[0] : "",
-        updated: f.updated ? f.updated.split('T')[0] : "",
-        resolutiondate: f.resolutiondate ? f.resolutiondate.split('T')[0] : "",
-        expirado: "Não"
-      };
-    });
+    const { items } = await fetchClosedIssues(project, dateFrom, dateTo, 500);
+    const dashboard = buildDashboard(items);
+
     const pdfDoc = await PDFDocument.create();
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
     const bold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-    let page = pdfDoc.addPage([595,842]);
-    let {width,height}=page.getSize();
-    let y = height - 50;
-    page.drawText(`Relatório de Chamados Encerrados - Projeto ${project}`, {x:50,y,font:bold,size:16});
-    y -= 30;
-    if(dateFrom||dateTo) page.drawText(`Período: ${dateFrom||''} até ${dateTo||''}`, {x:50,y,font,size:12}); y-=20;
-    const headers=["Tipo","Sistema","SLA","Summary","Reporter","Prioridade","Criado","Atualizado","Resolução","Expirado"];
-    headers.forEach((h,i)=>page.drawText(h,{x:50+i*55,y,font:bold,size:9}));
-    y-=14;
-    for(const it of items){
-      if(y<60){page=pdfDoc.addPage([595,842]); y=height-50;}
-      const vals=[it.issuetype,it.project,it.sla,it.summary,it.reporter,it.priority,it.created,it.updated,it.resolutiondate,it.expirado];
-      vals.forEach((v,i)=>{const txt=String(v).slice(0,30); page.drawText(txt,{x:50+i*55,y,font,size:8});});
-      y-=12;
+    const safe = (v) => String(v ?? "").replace(/[^\u0020-\u00FF]/g, "").replace(/\s+/g, " ").trim();
+
+    const PAGE_W = 842, PAGE_H = 595, MARGIN = 30, CONTENT_W = PAGE_W - MARGIN * 2;
+    const COLUMNS = [
+      { label: "Chamado", width: 62 },
+      { label: "Sistema", width: 95 },
+      { label: "Tipo", width: 60 },
+      { label: "SLA", width: 110 },
+      { label: "Prioridade", width: 52 },
+      { label: "Resumo", width: 130 },
+      { label: "Solicitante", width: 80 },
+      { label: "Criado", width: 50 },
+      { label: "Atualizado", width: 50 },
+      { label: "Resolução", width: 50 },
+      { label: "Expira", width: 43 },
+    ];
+    let colX = MARGIN;
+    for (const c of COLUMNS) { c.x = colX; colX += c.width; }
+
+    const wrap = (text, fnt, size, maxWidth) => {
+      const words = safe(text).split(" ").filter(Boolean);
+      if (!words.length) return [""];
+      const lines = [];
+      let line = "";
+      for (const word of words) {
+        let candidate = line ? `${line} ${word}` : word;
+        while (fnt.widthOfTextAtSize(candidate, size) > maxWidth) {
+          let cut = candidate.length - 1;
+          while (cut > 1 && fnt.widthOfTextAtSize(candidate.slice(0, cut), size) > maxWidth) cut--;
+          if (line) { lines.push(line); line = ""; candidate = word; continue; }
+          lines.push(candidate.slice(0, cut));
+          candidate = candidate.slice(cut);
+        }
+        line = candidate;
+      }
+      if (line) lines.push(line);
+      return lines.length ? lines : [""];
+    };
+
+    let page = pdfDoc.addPage([PAGE_W, PAGE_H]);
+    let y = PAGE_H - MARGIN;
+
+    const drawTitle = () => {
+      page.drawText("Relatorio de Chamados Encerrados", { x: MARGIN, y: y - 4, font: bold, size: 16, color: rgb(0.1,0.15,0.25) });
+      y -= 22;
+      const periodo = (dateFrom || dateTo)
+        ? `Periodo: ${dateFrom || "inicio"} ate ${dateTo || "hoje"}`
+        : "Periodo: todos os chamados encerrados";
+      const sub = `Projeto ${project} | ${periodo} | Gerado em ${new Date().toLocaleString("pt-BR")}`;
+      page.drawText(safe(sub), { x: MARGIN, y, font, size: 8, color: rgb(0.35,0.35,0.35) });
+      y -= 20;
+    };
+
+    const drawDashboard = () => {
+      const porTipo = dashboard.porTipo;
+      const porPrioridade = dashboard.porPrioridade;
+      const rows = Math.max(porTipo.length, porPrioridade.length, 1);
+      const blockH = 32 + rows * 13 + 12;
+      if (y - blockH < MARGIN + 40) {
+        page = pdfDoc.addPage([PAGE_W, PAGE_H]);
+        y = PAGE_H - MARGIN;
+        drawTitle();
+      }
+      page.drawRectangle({ x: MARGIN, y: y - 20, width: CONTENT_W, height: 24, color: rgb(0.93,0.95,0.98), borderColor: rgb(0.75,0.82,0.9), borderWidth: 0.5 });
+      page.drawText(safe(`Total de chamados encerrados: ${dashboard.total}`), { x: MARGIN + 8, y: y - 14, font: bold, size: 10, color: rgb(0.15,0.25,0.4) });
+      y -= 32;
+      const colW = (CONTENT_W - 20) / 2;
+      const leftX = MARGIN, rightX = MARGIN + colW + 20;
+      page.drawText("Por tipo", { x: leftX, y, font: bold, size: 9 });
+      page.drawText("Por prioridade", { x: rightX, y, font: bold, size: 9 });
+      y -= 13;
+      const maxCount = Math.max(1, ...porTipo.map((e) => e.count), ...porPrioridade.map((e) => e.count));
+      const barMax = colW - 150;
+      const drawEntries = (entries, x) => {
+        entries.slice(0, 14).forEach((e, idx) => {
+          const yy = y - idx * 13;
+          page.drawText(safe(e.label).slice(0, 28), { x, y: yy, font, size: 7.5 });
+          page.drawText(String(e.count), { x: x + colW - 20, y: yy, font: bold, size: 7.5 });
+          page.drawRectangle({ x: x + 120, y: yy - 1, width: Math.max(2, (e.count / maxCount) * barMax), height: 6, color: rgb(0.25,0.5,0.85) });
+        });
+      };
+      drawEntries(porTipo, leftX);
+      drawEntries(porPrioridade, rightX);
+      y -= rows * 13 + 10;
+    };
+    drawTitle();
+    drawDashboard();
+
+    const drawTableHeader = () => {
+      page.drawRectangle({ x: MARGIN, y: y - 13, width: CONTENT_W, height: 14, color: rgb(0.15,0.3,0.5) });
+      for (const c of COLUMNS) {
+        page.drawText(c.label, { x: c.x + 2, y: y - 9, font: bold, size: 7, color: rgb(1,1,1) });
+      }
+      y -= 16;
+    };
+    drawTableHeader();
+
+    const ROW_FONT = 7;
+    const LINE_H = 8.5;
+    const PAD_X = 2;
+    const PAD_Y = 3;
+
+    for (let idx = 0; idx < items.length; idx++) {
+      const it = items[idx];
+      const values = [it.key, it.sistema, it.issuetype, it.sla, it.priority, it.summary, it.reporter, it.created, it.updated, it.resolutiondate, it.expirado];
+      const cellLines = values.map((v, i) => wrap(v, font, ROW_FONT, COLUMNS[i].width - PAD_X * 2));
+      const rowLines = Math.max(...cellLines.map((l) => l.length), 1);
+      const rowH = rowLines * LINE_H + PAD_Y * 2;
+      if (y - rowH < MARGIN + 12) {
+        page = pdfDoc.addPage([PAGE_W, PAGE_H]);
+        y = PAGE_H - MARGIN;
+        drawTableHeader();
+      }
+      if (idx % 2 === 1) {
+        page.drawRectangle({ x: MARGIN, y: y - rowH, width: CONTENT_W, height: rowH, color: rgb(0.96,0.97,0.99) });
+      }
+      cellLines.forEach((lines, i) => {
+        lines.forEach((line, li) => {
+          page.drawText(line, { x: COLUMNS[i].x + PAD_X, y: y - PAD_Y - (li + 1) * LINE_H + 2, font, size: ROW_FONT, color: rgb(0.12,0.12,0.12) });
+        });
+      });
+      page.drawLine({ start: { x: MARGIN, y: y - rowH }, end: { x: MARGIN + CONTENT_W, y: y - rowH }, thickness: 0.3, color: rgb(0.85,0.85,0.85) });
+      y -= rowH;
     }
-    const pdfBytes=await pdfDoc.save();
-    res.setHeader('Content-Type','application/pdf');
-    res.setHeader('Content-Disposition',`attachment; filename="chamados-encerrados-${project}-${Date.now()}.pdf"`);
+
+    const pages = pdfDoc.getPages();
+    pages.forEach((p, i) => {
+      const label = `Pagina ${i + 1} de ${pages.length}`;
+      const w = font.widthOfTextAtSize(label, 8);
+      p.drawText(label, { x: PAGE_W - MARGIN - w, y: 16, font, size: 8, color: rgb(0.4,0.4,0.4) });
+    });
+
+    const pdfBytes = await pdfDoc.save();
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="chamados-encerrados-${project}-${Date.now()}.pdf"`);
     res.send(Buffer.from(pdfBytes));
   } catch(err){ console.error("pdf encerrados error:",err); res.status(502).json({success:false,error:err.message}); }
 });

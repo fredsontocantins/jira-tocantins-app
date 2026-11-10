@@ -13,12 +13,18 @@ services:
       - NODE_ENV=production
       - HOST=0.0.0.0
       - PORT=3000
+      - HOME=/home/app
+    # Mesmo UID do usuário "casa" no host: permite ler/gravar a configuração
+    # do TWG montada abaixo e garante acesso ao SQLite em ./data.
+    user: "1000:1000"
     volumes:
       # Persistencia do SQLite (usuarios aprovados)
       - ./data:/app/data
-      # TWG auth e binário para busca Confluence (leitura somente)
+      # TWG auth e binário para busca Confluence
       - /home/casa/.local/bin:/opt/twg/bin:ro
-      - /home/casa/.config/twg:/home/app/.config/twg:ro
+      - /home/casa/.config/twg:/home/app/.config/twg
+      # Cache gravável do TWG dentro do container
+      - ./data/twg-cache:/home/app/.cache/twg
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
       interval: 30s

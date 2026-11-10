@@ -81,12 +81,15 @@ export async function fetchIssuesByJql(jql, fields = DEFAULT_FIELDS, maxResults 
   let nextPageToken = null;
   let isLast = false;
   const pageSize = Math.min(maxResults || 100, 100);
+  const fieldList = Array.isArray(fields)
+    ? fields
+    : String(fields).split(",").map((f) => f.trim()).filter(Boolean);
 
   while (!isLast && all.length < (maxResults || Infinity)) {
     const body = {
       jql,
       maxResults: pageSize,
-      fields,
+      fields: fieldList,
     };
     if (expand && (Array.isArray(expand) ? expand.length : expand)) {
       body.expand = Array.isArray(expand) ? expand.join(",") : expand;

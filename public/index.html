@@ -2173,8 +2173,9 @@
       const items=data.items||[];
       const rows=items.map(it=>`
         <tr>
+          <td><strong>${it.key||''}</strong></td>
           <td>${it.issuetype||''}</td>
-          <td>${it.project||''}</td>
+          <td>${it.sistema||it.project||''}</td>
           <td>${it.sla||''}</td>
           <td>${it.summary||''}</td>
           <td>${it.reporter||''}</td>
@@ -2184,9 +2185,16 @@
           <td>${it.resolutiondate||''}</td>
           <td>${it.expirado||'Não'}</td>
         </tr>`).join('');
-      results.innerHTML=`<div style="margin-top:12px;overflow:auto;"><table style="width:100%;font-size:.8rem;"><thead><tr>
-        <th>Tipo</th><th>Sistema</th><th>SLA</th><th>Summary</th><th>Reporter</th><th>Prioridade</th><th>Criado</th><th>Atualizado</th><th>Resolução</th><th>Expirado</th>
-      </tr></thead><tbody>${rows||'<tr><td colspan="10" style="text-align:center;">Nenhum resultado</td></tr>'}</tbody></table></div>`;
+      const dash=data.dashboard||{total:0,porTipo:[],porPrioridade:[]};
+      const chips=(arr)=>arr.map(x=>`<span class="badge" style="margin:2px 4px 2px 0;">${x.label}: ${x.count}</span>`).join('');
+      const dashHtml=`<div style="margin-top:12px;padding:10px;border:1px solid var(--border);background:var(--card2);">
+        <div style="font-weight:700;color:var(--navy);margin-bottom:6px;">Total de chamados encerrados: ${dash.total}</div>
+        <div style="margin-bottom:4px;"><strong>Por tipo:</strong> ${chips(dash.porTipo||[])}</div>
+        <div><strong>Por prioridade:</strong> ${chips(dash.porPrioridade||[])}</div>
+      </div>`;
+      results.innerHTML=`${dashHtml}<div style="margin-top:12px;overflow:auto;"><table style="width:100%;font-size:.8rem;"><thead><tr>
+        <th>Chamado</th><th>Tipo</th><th>Sistema</th><th>SLA</th><th>Summary</th><th>Reporter</th><th>Prioridade</th><th>Criado</th><th>Atualizado</th><th>Resolução</th><th>Expirado</th>
+      </tr></thead><tbody>${rows||'<tr><td colspan="11" style="text-align:center;">Nenhum resultado</td></tr>'}</tbody></table></div>`;
     }catch(err){
       results.innerHTML=`<div style="color:var(--red);">Erro: ${err.message}</div>`;
     }
