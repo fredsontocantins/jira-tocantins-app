@@ -1037,9 +1037,12 @@ function normalizeClosedIssue(issue, project) {
     f.project?.key || project;
   const resolutionRaw = f.resolutiondate || f.resolution?.date || "";
   const cycles = Array.isArray(f.customfield_10084?.completedCycles) ? f.customfield_10084.completedCycles : [];
+  const tipo = f.issuetype?.name || "";
+  const noExpiryTypes = ["Adaptativa", "Banco de Dados"];
+  const isNoExpiry = noExpiryTypes.some(t => t.toLowerCase() === tipo.toLowerCase());
   return {
     key: issue.key,
-    issuetype: f.issuetype?.name || "",
+    issuetype: tipo,
     project: f.project?.key || project,
     sistema,
     sla: formatSla(f.customfield_10084) !== "—" ? formatSla(f.customfield_10084) : formatSla(f.customfield_10132),
@@ -1049,7 +1052,7 @@ function normalizeClosedIssue(issue, project) {
     created: f.created ? f.created.split("T")[0] : "",
     updated: f.updated ? f.updated.split("T")[0] : "",
     resolutiondate: resolutionRaw ? resolutionRaw.split("T")[0] : "",
-    expirado: cycles.some((c) => c.breached) ? "Sim" : "Não",
+    expirado: isNoExpiry ? "Não" : (cycles.some((c) => c.breached) ? "Sim" : "Não"),
   };
 }
 
