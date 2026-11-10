@@ -18,6 +18,14 @@ import { verifyGoogleIdToken } from "./googleAuth.js";
 import { upsertPendingUser, getUserByEmail, listUsers, approveUser, rejectUser, updateUserScope, isAdminEmail, ADMIN_EMAIL } from "./users.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const LOGO_PATH = path.join(__dirname, 'assets', 'logo_az_white.png');
+let LOGO_PNG_BYTES = null;
+async function getLogoBytes() {
+  if (!LOGO_PNG_BYTES) {
+    try { LOGO_PNG_BYTES = await fs.promises.readFile(LOGO_PATH); } catch { LOGO_PNG_BYTES = null; }
+  }
+  return LOGO_PNG_BYTES;
+}
 const app = express();
 
 app.use(express.json());
@@ -832,8 +840,8 @@ app.get("/api/release/pdf", async (req, res) => {
     const items = results.map(r=>{ const title=r.title||r.content?.title||""; const id=r.content?.id||r.id||""; const rawUrl=r.url||""; const sm=rawUrl.match(/\/spaces\/([^/]+)\/pages/); const spaceKey=sm?sm[1]:r.spaceKey||""; const url=rawUrl.startsWith("http")?rawUrl:`https://aztecnologia.atlassian.net/wiki${rawUrl}`; const lastModified=r.lastModified||r.updated||""; const vm=title.match(/(?:v)?(\d+\.\d+(?:\.\d+)?[A-Z0-9\.\-]*) /i)||title.match(/(?:v)?(\d+\.\d+(?:\.\d+)?[A-Z0-9\.\-]*)$/i); const version=vm?vm[1]:""; return {id,title,spaceKey,url,lastModified,version}; }).filter(i=>i.id);
     const grouped={}; items.forEach(i=>{(grouped[i.spaceKey]||=[]).push(i)}); Object.values(grouped).forEach(arr=>arr.sort((a,b)=>new Date(b.lastModified||0)-new Date(a.lastModified||0)));
     
-    // Helper to fetch content markdown
-    const fetchContent = async (id) => {
+    // Helper to fetch content HTML
+    const fetchContentHtml = async (id) => {
       try {
         const args = ["confluence","content","get",id,"--format","html","--detail","full","--include-metadata","--output","json"];
         const r = spawnSync("/opt/twg/bin/twg", args, { encoding:"utf-8", timeout:10000, env:{...process.env, HOME: process.env.HOME || "/home/app", PATH:"/opt/twg/bin:"+ (process.env.PATH||"")} });
@@ -843,38 +851,189 @@ app.get("/api/release/pdf", async (req, res) => {
         const d = JSON.parse(out);
         const payload = d.data||d;
         const html = payload.body?.value || payload.body?.storage?.value || "";
-        // Simple strip tags
-        const text = html.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();
-        return text.slice(0,4000);
+        return html;
       } catch { return ""; }
     };
+    const parseReleaseHtml = (html) => {
+      const decodeHtml = (s) => s.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'");
+      const stripHtml = (s) => {
+        let t = decodeHtml(s)
+          .replace(/<br\s*\/?>/gi,'\n')
+          .replace(/<\/p>/gi,'\n\n')
+          .replace(/<\/div>/gi,'\n')
+          .replace(/<[^>]+>/g,' ')
+          .replace(/\s+\n/g,'\n')
+          .replace(/\n\s+/g,'\n');
+        t = t.replace(/[ \t]+/g,' ').replace(/\n\s*\n/g,'\n\n').trim();
+        return t;
+      };
+      const normalizeCategory = (c) => {
+        const lc = c.toLowerCase();
+        if (/funcional|adicion/.test(lc)) return 'Funcionalidades adicionadas';
+        if (/melhor/.test(lc)) return 'Melhorias realizadas';
+        if (/manuten/.test(lc)) return 'Manutenções realizadas';
+        if (/corre/.test(lc)) return 'Correções realizadas';
+        return c.trim();
+      };
+      const productMatch = html.match(/<h1[^>]*>[^<]*Projeto:[^<]*<strong>([^<]+)<\/strong>/i);
+      const product = productMatch ? productMatch[1].trim() : '';
+      const versionMatch = html.match(/<h2[^>]*>\s*Vers[oã]o:\s*([^<]+)<\/h2>/i);
+      const version = versionMatch ? versionMatch[1].trim() : '';
+      const dateMatch = html.match(/<time[^>]*datetime="([^"]+)"/i);
+      const date = dateMatch ? new Date(dateMatch[1]).toLocaleDateString('pt-BR') : '';
+      const sections = [];
+      const secRe = /<h3[^>]*>([^<]+)<\/h3>\s*<table[^>]*>([\s\S]*?)<\/table>/gi;
+      let m;
+      while ((m = secRe.exec(html)) !== null) {
+        const category = normalizeCategory(stripHtml(m[1]));
+        const tableHtml = m[2];
+        const rows = [];
+        const rowRe = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+        let rm;
+        let first = true;
+        while ((rm = rowRe.exec(tableHtml)) !== null) {
+          if (first) { first = false; continue; }
+          const rowHtml = rm[1];
+          const cells = [];
+          const cellRe = /<td[^>]*>([\s\S]*?)<\/td>/gi;
+          let cm;
+          while ((cm = cellRe.exec(rowHtml)) !== null) {
+            cells.push(stripHtml(cm[1]));
+          }
+          if (cells.length >= 2) rows.push({ ticket: cells[0], desc: cells[1] });
+        }
+        if (rows.length) sections.push({ category, rows });
+      }
+      if (!sections.length) {
+        const tableRe = /<table[^>]*>([\s\S]*?)<\/table>/gi;
+        let tm;
+        while ((tm = tableRe.exec(html)) !== null) {
+          const rows = [];
+          const rowRe = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+          let rm2;
+          let first2 = true;
+          while ((rm2 = rowRe.exec(tm[1])) !== null) {
+            if (first2) { first2 = false; continue; }
+            const rowHtml = rm2[1];
+            const cells = [];
+            const cellRe = /<td[^>]*>([\s\S]*?)<\/td>/gi;
+            let cm2;
+            while ((cm2 = cellRe.exec(rowHtml)) !== null) {
+              cells.push(stripHtml(cm2[1]));
+            }
+            if (cells.length >=2) rows.push({ ticket: cells[0], desc: cells[1] });
+          }
+          if (rows.length) sections.push({ category: 'Itens', rows });
+        }
+      }
+      return { product, version, date, sections };
+    };
     
-    // Generate PDF with content
+    // Generate PDF with content - paleta do sistema
     const pdfDoc = await PDFDocument.create();
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
     const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
     const safe = s => String(s||'').replace(/[^\u0020-\u00FF]/g,'');
-    const drawWrapped = (page,y,txt,size=10)=>{ const maxW=500; const words=safe(txt).split(' '); let line=''; let curY=y; for(const w of words){ if((line+w).length*size*0.6>maxW){ page.drawText(safe(line),{x:50,y:curY,font,size}); curY-=size+2; line=w+' '; } else { line+=(w+' '); } } if(line) { page.drawText(safe(line),{x:50,y:curY,font,size}); curY-=size+2; } return curY; };
+    const NAVY = rgb(0, 36/255, 54/255);
+    const ACCENT = rgb(234/255, 79/255, 36/255);
+    const MUTED = rgb(87/255, 87/255, 86/255);
+    const drawWrapped = (page,y,txt,size=10)=>{ const maxW=500; const words=safe(txt).split(' '); let line=''; let curY=y; for(const w of words){ if((line+w).length*size*0.6>maxW){ page.drawText(safe(line),{x:50,y:curY,font,size,color: rgb(0.12,0.12,0.12)}); curY-=size+2; line=w+' '; } else { line+=(w+' '); } } if(line) { page.drawText(safe(line),{x:50,y:curY,font,size,color: rgb(0.12,0.12,0.12)}); curY-=size+2; } return curY; };
+    let logoImage = null;
+    try {
+      const logoBytes = await getLogoBytes();
+      if (logoBytes) logoImage = await pdfDoc.embedPng(logoBytes);
+    } catch {}
+    const drawHeader = (page,height) => {
+      page.drawRectangle({ x:0, y:height-50, width:595, height:50, color: NAVY });
+      page.drawRectangle({ x:0, y:height-50, width:595, height:4, color: ACCENT });
+      let logoWidth = 0;
+      if (logoImage) {
+        const logoHeight = 28;
+        logoWidth = logoImage.width * logoHeight / logoImage.height;
+        page.drawImage(logoImage, { x: 50, y: height - 50 + (50 - logoHeight)/2, width: logoWidth, height: logoHeight });
+      }
+      const title = "Notas de Release";
+      const titleWidth = boldFont.widthOfTextAtSize(title, 18);
+      const titleX = Math.max(50, Math.round((595 - titleWidth) / 2));
+      page.drawText(title, { x:titleX, y:height-32, font: boldFont, size:18, color: rgb(1,1,1) });
+    };
     let page = pdfDoc.addPage([595,842]);
     let { width, height } = page.getSize();
-    let y = height - 50;
+    drawHeader(page,height);
+    let y = height - 70;
     
-    page.drawText("Notas de Release Confluence - Conteúdo Completo", { x: 50, y, font: boldFont, size: 18, color: rgb(0,0,0) });
-    y -= 30;
-    
-    for (const [spaceKey, notes] of Object.entries(grouped)) {
+    const sortedSpaces = Object.entries(grouped).sort((a,b)=>a[0].localeCompare(b[0]));
+    for (const [spaceKey, notes] of sortedSpaces) {
       for (const n of notes) {
-        if (y < 120) { page = pdfDoc.addPage([595,842]); y = height - 50; }
-        page.drawText(safe(`Espaço: ${spaceKey}`), { x: 50, y, font: boldFont, size: 14 });
-        y -= 20;
-        const titleLine = `${n.title} ${n.version ? 'v'+n.version : ''}`;
-        page.drawText(safe(titleLine), { x: 50, y, font: boldFont, size: 12 });
-        y -= 16;
-        page.drawText(safe(`Data: ${n.lastModified ? new Date(n.lastModified).toLocaleDateString('pt-BR') : ''} | ${n.url}`), { x: 50, y, font, size: 9, color: rgb(0.3,0.3,0.3) });
+        if (y < 150) { page = pdfDoc.addPage([595,842]); ({width,height}=page.getSize()); drawHeader(page,height); y = height - 70; }
+        const html = await fetchContentHtml(n.id);
+        const rel = parseReleaseHtml(html);
+        const version = rel.version || (n.version ? n.version : '');
+        const title = `Nota de Release - ${version}`;
+        page.drawText(safe(title), { x:50, y, font: boldFont, size:16, color: NAVY });
+        y -= 18;
+        page.drawText(safe(`Espaço: ${spaceKey}`), { x:50, y, font, size:9, color: MUTED });
+        y -= 12;
+        page.drawText(safe(`Produto: ${rel.product || ''}`), { x:50, y, font, size:9, color: rgb(0,0,0) });
+        y -= 12;
+        page.drawText(safe(`Versão: ${rel.version || version || ''}`), { x:50, y, font, size:9, color: rgb(0,0,0) });
+        y -= 12;
+        const dataStr = rel.date || (n.lastModified ? new Date(n.lastModified).toLocaleDateString('pt-BR') : '');
+        page.drawText(safe(`Data: ${dataStr}`), { x:50, y, font, size:9, color: rgb(0,0,0) });
+        y -= 12;
+        const totalItens = rel.sections.reduce((s,sec)=>s+sec.rows.length,0);
+        page.drawText(safe(`Quantidade de itens: ${totalItens}`), { x:50, y, font, size:9, color: rgb(0,0,0) });
+        y -= 18;
+        // Resumo
+        page.drawText(safe('Resumo'), { x:50, y, font: boldFont, size:11, color: NAVY });
         y -= 14;
-        const content = await fetchContent(n.id);
-        if(content){
-          y = drawWrapped(page,y,content,9);
+        rel.sections.forEach(sec => {
+          page.drawText(safe(`${sec.category}: ${sec.rows.length}`), { x:60, y, font, size:9, color: rgb(0,0,0) });
+          y -= 12;
+        });
+        y -= 6;
+        // Seções detalhadas
+        for (const sec of rel.sections) {
+          if (y < 120) { page = pdfDoc.addPage([595,842]); ({width,height}=page.getSize()); drawHeader(page,height); y = height - 70; }
+          page.drawText(safe(sec.category), { x:50, y, font: boldFont, size:11, color: NAVY });
+          y -= 14;
+          // cabeçalho da tabela
+          page.drawText(safe('Incidente / Ticket'), { x:50, y, font: boldFont, size:9, color: rgb(0,0,0) });
+          page.drawText(safe('Descrição da alteração'), { x:200, y, font: boldFont, size:9, color: rgb(0,0,0) });
+          y -= 12;
+          for (const row of sec.rows) {
+            if (y < 70) { page = pdfDoc.addPage([595,842]); ({width,height}=page.getSize()); drawHeader(page,height); y = height - 70; }
+            const ticket = safe(row.ticket);
+            const desc = safe(row.desc);
+            const ticketMaxW = 140;
+            const descMaxW = 340;
+            const wrapLines = (txt, maxW) => {
+              const words = txt.split(' ');
+              const lines = [];
+              let line = '';
+              for (const w of words) {
+                const test = line ? line + ' ' + w : w;
+                if (font.widthOfTextAtSize(test, 9) > maxW) {
+                  if (line) lines.push(line);
+                  line = w;
+                } else {
+                  line = test;
+                }
+              }
+              if (line) lines.push(line);
+              return lines.length ? lines : [''];
+            };
+            const ticketLines = wrapLines(ticket, ticketMaxW);
+            const descLines = wrapLines(desc, descMaxW);
+            const rowLines = Math.max(ticketLines.length, descLines.length);
+            for (let i = 0; i < rowLines; i++) {
+              if (y < 70) { page = pdfDoc.addPage([595,842]); ({width,height}=page.getSize()); drawHeader(page,height); y = height - 70; }
+              if (ticketLines[i]) page.drawText(ticketLines[i], { x:50, y, font, size:9, color: rgb(0,0,0) });
+              if (descLines[i]) page.drawText(descLines[i], { x:200, y, font, size:9, color: rgb(0,0,0) });
+              y -= 11;
+            }
+          }
+          y -= 10;
         }
         y -= 20;
       }
@@ -1025,6 +1184,7 @@ function buildDashboard(items) {
     total,
     porTipo: withPercent(countBy(items, "issuetype"), total),
     porPrioridade: withPercent(countBy(items, "priority"), total),
+    porSistema: withPercent(countBy(items, "sistema"), total),
     expirados: withPercent(countBy(items, "expirado"), total),
   };
 }
@@ -1085,12 +1245,18 @@ app.get("/api/chamados/encerrados/pdf", async (req, res) => {
     const dateTo = (req.query.dateTo || "").toString().trim();
     if (!project) return res.status(400).json({ success:false, error:"Projeto obrigatório" });
     const { items } = await fetchClosedIssues(project, dateFrom, dateTo, 500);
+    items.sort((a, b) => String(b.created || "").localeCompare(String(a.created || "")));
     const dashboard = buildDashboard(items);
 
     const pdfDoc = await PDFDocument.create();
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
     const bold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
     const safe = (v) => String(v ?? "").replace(/[^\u0020-\u00FF]/g, "").replace(/\s+/g, " ").trim();
+    let logoImage = null;
+    try {
+      const logoBytes = await getLogoBytes();
+      if (logoBytes) logoImage = await pdfDoc.embedPng(logoBytes);
+    } catch {}
 
     const PAGE_W = 842, PAGE_H = 595, MARGIN = 30, CONTENT_W = PAGE_W - MARGIN * 2;
     const COLUMNS = [
@@ -1147,7 +1313,16 @@ app.get("/api/chamados/encerrados/pdf", async (req, res) => {
     const drawTitle = () => {
       page.drawRectangle({ x: 0, y: PAGE_H - 38, width: PAGE_W, height: 38, color: NAVY });
       page.drawRectangle({ x: 0, y: PAGE_H - 42, width: PAGE_W, height: 4, color: ACCENT });
-      page.drawText("Relatorio de Chamados Encerrados", { x: MARGIN, y: PAGE_H - 24, font: bold, size: 14, color: WHITE });
+      let logoW = 0;
+      if (logoImage) {
+        const logoH = 24;
+        logoW = logoImage.width * logoH / logoImage.height;
+        page.drawImage(logoImage, { x: MARGIN, y: PAGE_H - 38 + (38 - logoH)/2, width: logoW, height: logoH });
+      }
+      const titleText = "Relatorio de Chamados Encerrados";
+      const titleWidth = bold.widthOfTextAtSize(titleText, 14);
+      const titleX = Math.round((PAGE_W - titleWidth) / 2);
+      page.drawText(titleText, { x: titleX, y: PAGE_H - 24, font: bold, size: 14, color: WHITE });
       const tag = safe(`PROJETO ${project}`);
       page.drawText(tag, { x: PAGE_W - MARGIN - bold.widthOfTextAtSize(tag, 9), y: PAGE_H - 22, font: bold, size: 9, color: rgb(0.85, 0.89, 0.92) });
       y = PAGE_H - 54;
@@ -1228,9 +1403,9 @@ app.get("/api/chamados/encerrados/pdf", async (req, res) => {
 
     const drawDashboard = () => {
       const panelW = (CONTENT_W - 20) / 3;
-      const rows = Math.max(2, Math.min(dashboard.porTipo.length, 6), Math.min(dashboard.porPrioridade.length, 6));
+      const rows = Math.max(2, Math.min(dashboard.porTipo.length, 6), Math.min(dashboard.porPrioridade.length, 6), Math.min(dashboard.porSistema?.length || 0, 6));
       const chartsH = 15 + rows * 13 + 6;
-      const needed = 56 + 15 + chartsH + 10;
+      const needed = 56 + 15 + chartsH + 10 + 50;
       if (y - needed < MARGIN + 40) {
         page = pdfDoc.addPage([PAGE_W, PAGE_H]);
         drawTitle();
@@ -1239,8 +1414,10 @@ app.get("/api/chamados/encerrados/pdf", async (req, res) => {
       const chartTop = y;
       drawBarPanel(MARGIN, chartTop, panelW, "Por tipo", dashboard.porTipo, () => NAVY);
       drawBarPanel(MARGIN + panelW + 10, chartTop, panelW, "Por prioridade", dashboard.porPrioridade, prioColor);
-      const slaH = drawSlaPanel(MARGIN + 2 * (panelW + 10), chartTop, panelW);
-      y = Math.min(chartTop - chartsH, chartTop - slaH) - 8;
+      drawBarPanel(MARGIN + 2 * (panelW + 10), chartTop, panelW, "Por sistema", dashboard.porSistema || [], () => ACCENT);
+      const afterBarsY = chartTop - chartsH - 8;
+      drawSlaPanel(MARGIN, afterBarsY, CONTENT_W);
+      y = afterBarsY - 50;
     };
     drawTitle();
     drawDashboard();
