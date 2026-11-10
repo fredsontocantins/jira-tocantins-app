@@ -2,14 +2,7 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
-import { spawnSync } from "node:child_process";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
-
-const TWG = process.env.TWG_BIN || "/opt/twg/bin/twg";
-function runTwg(args){
-  const cmd = `sudo -u casa ${TWG} ${args.map(a=>`'${a.replace(/'/g,"'\\''")}'`).join(' ')}`;
-  return spawnSync('bash', ['-c', cmd], { encoding:'utf-8', timeout:15000, env:{...process.env, HOME:'/home/casa'} });
-}
 import { config, jiraAuthHeader } from "./config.js";
 import { fetchAbertos, fetchFilter, fetchIssuesByJql, normalizeIssue, DEFAULT_FIELDS, fetchIssueDetails, fetchComments, fetchWorklogs, fetchRecentActivity, fetchAttachmentMeta, jqlForScope, fetchProjects, jqlForProject, searchIssues, createComment } from "./jira.js";
 import { isPipefyConfigured, fetchPipe, fetchCards, createCardFromIssue, syncIssuesToPipefy } from "./pipefy.js";
@@ -17,6 +10,7 @@ import { login, logout, getSessionFromRequest, requireAuth, requireAdmin, requir
 import { verifyGoogleIdToken } from "./googleAuth.js";
 import { upsertPendingUser, getUserByEmail, listUsers, approveUser, rejectUser, updateUserScope, isAdminEmail, ADMIN_EMAIL } from "./users.js";
 import { syncReleaseNotes, listReleaseNotes, getStatus } from "./release-notes.js";
+import { runTwg, readTwgOutput, twgErrorMessage } from "./twg.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const LOGO_PATH = path.join(__dirname, 'assets', 'logo_az_white.png');
@@ -578,15 +572,11 @@ app.post("/api/pipefy/webhook", (req, res) => {
 app.get("/api/release/spaces", (req, res) => {
   try {
     const args = ["confluence","space","list","--output","json","--limit","200"];
-    const result = spawnSync("/opt/twg/bin/twg", args, { encoding: "utf-8", timeout: 15000, env: { ...process.env, HOME: process.env.HOME || "/home/app", PATH: "/opt/twg/bin:" + (process.env.PATH || "") } });
+    const result = runTwg(args, { timeout: 15000 });
     if (result.error || result.status !== 0) {
-      return res.status(502).json({ success: false, error: "TWG indisponível" });
+      return res.status(502).json({ success: false, error: twgErrorMessage(result) });
     }
-    let stdout = result.stdout || "";
-    if (!stdout.trim().startsWith("{")) {
-      const m = stdout.match(/stdout:\s*"([^"]+)"/);
-      if (m) stdout = fs.readFileSync(m[1], 'utf-8');
-    }
+    const stdout = readTwgOutput(result.stdout);
     const data = JSON.parse(stdout);
     const spaces = Array.isArray(data.data) ? data.data : data;
     const items = spaces.map(s => ({ key: s.key, name: s.name, id: s.id, type: s.type, status: s.status })).filter(s => s.key && s.name);
@@ -619,20 +609,12 @@ app.get("/api/release/search", (req, res) => {
   let errorMsg = null;
   try {
     const args = ["confluence","search","query","--cql",cql,"--limit","50","--output","json"];
-    const result = spawnSync("/opt/twg/bin/twg", args, { encoding: "utf-8", timeout: 15000, env: { ...process.env, HOME: process.env.HOME || "/home/app", PATH: "/opt/twg/bin:" + (process.env.PATH || "") } });
+    const result = runTwg(args, { timeout: 15000 });
     if (result.error || result.status !== 0) {
-      errorMsg = result.error ? result.error.message : "TWG error";
+      errorMsg = twgErrorMessage(result);
     } else {
-      let stdout = result.stdout || "";
       // TWG may output a summary with JSON file path when stdout is not a TTY
-      if (!stdout.trim().startsWith("{")) {
-        const m = stdout.match(/stdout:\s*"([^"]+)"/);
-        if (m) {
-          try {
-            stdout = fs.readFileSync(m[1], 'utf-8');
-          } catch {}
-        }
-      }
+      const stdout = readTwgOutput(result.stdout);
       try {
         const data = JSON.parse(stdout);
         const results = (data.data && Array.isArray(data.data.results)) ? data.data.results : (Array.isArray(data.results) ? data.results : (Array.isArray(data) ? data : []));
@@ -675,19 +657,11 @@ app.get("/api/release/content", (req, res) => {
   if (!id) return res.status(400).json({ success: false, error: "id obrigatório" });
   try {
     const args = ["confluence","content","get",id,"--format","html","--detail","full","--include-metadata","--output","json"];
-    const result = spawnSync("/opt/twg/bin/twg", args, { encoding: "utf-8", timeout: 15000, env: { ...process.env, HOME: process.env.HOME || "/home/app", PATH: "/opt/twg/bin:" + (process.env.PATH || "") } });
+    const result = runTwg(args, { timeout: 15000 });
     if (result.error || result.status !== 0) {
-      return res.status(502).json({ success: false, error: "TWG indisponível", output: result.stdout || "" });
+      return res.status(502).json({ success: false, error: twgErrorMessage(result), output: result.stdout || "" });
     }
-    let stdout = result.stdout || "";
-    if (!stdout.trim().startsWith("{")) {
-      const m = stdout.match(/stdout:\s*"([^"]+)"/);
-      if (m) {
-        try {
-          stdout = fs.readFileSync(m[1], 'utf-8');
-        } catch {}
-      }
-    }
+    const stdout = readTwgOutput(result.stdout);
     let data;
     try { data = JSON.parse(stdout); } catch { data = { body: stdout }; }
     const payload = data.data || data;
@@ -699,12 +673,8 @@ app.get("/api/release/content", (req, res) => {
     if (!space && payload.spaceId) {
       try {
         const spArgs = ["confluence","space","get",payload.spaceId,"--output","json"];
-        const spRes = spawnSync("/opt/twg/bin/twg", spArgs, { encoding: "utf-8", timeout: 8000, env: { ...process.env, HOME: process.env.HOME || "/home/app", PATH: "/opt/twg/bin:" + (process.env.PATH || "") } });
-        let spOut = spRes.stdout || "";
-        if (!spOut.trim().startsWith("{")) {
-          const m = spOut.match(/stdout:\s*"([^"]+)"/);
-          if (m) { try { spOut = fs.readFileSync(m[1], 'utf-8'); } catch {} }
-        }
+        const spRes = runTwg(spArgs, { timeout: 8000 });
+        const spOut = readTwgOutput(spRes.stdout);
         const spData = JSON.parse(spOut);
         const spPayload = spData.data || spData;
         space = spPayload.key || space;
@@ -783,15 +753,11 @@ app.get("/api/release/report", async (req, res) => {
     if (!dateFrom && !dateTo) parts.push('lastmodified >= now("-365d")');
     const cql = parts.join(" AND ");
     const args = ["confluence","search","query","--cql",cql,"--limit","50","--output","json"];
-    const result = spawnSync("/opt/twg/bin/twg", args, { encoding: "utf-8", timeout: 15000, env: { ...process.env, HOME: process.env.HOME || "/home/app", PATH: "/opt/twg/bin:" + (process.env.PATH || "") } });
+    const result = runTwg(args, { timeout: 15000 });
     if (result.error || result.status !== 0) {
-      return res.status(502).json({ success: false, error: "TWG indisponível" });
+      return res.status(502).json({ success: false, error: twgErrorMessage(result) });
     }
-    let stdout = result.stdout || "";
-    if (!stdout.trim().startsWith("{")) {
-      const m = stdout.match(/stdout:\s*"([^"]+)"/);
-      if (m) stdout = fs.readFileSync(m[1], 'utf-8');
-    }
+    const stdout = readTwgOutput(result.stdout);
     const data = JSON.parse(stdout);
     const results = (data.data && Array.isArray(data.data.results)) ? data.data.results : (Array.isArray(data.results) ? data.results : []);
     const items = results.map(r => {
@@ -832,10 +798,9 @@ app.get("/api/release/pdf", async (req, res) => {
     if (!dateFrom && !dateTo) parts.push('lastmodified >= now("-365d")');
     const cql = parts.join(" AND ");
     const args = ["confluence","search","query","--cql",cql,"--limit","50","--output","json"];
-    const result = spawnSync("/opt/twg/bin/twg", args, { encoding:"utf-8", timeout:15000, env:{...process.env, HOME: process.env.HOME || "/home/app", PATH:"/opt/twg/bin:"+ (process.env.PATH||"")} });
-    if (result.error || result.status!==0) return res.status(502).json({success:false,error:"TWG indisponível"});
-    let stdout = result.stdout||"";
-    if (!stdout.trim().startsWith("{")) { const m=stdout.match(/stdout:\\s*"([^"]+)"/); if(m) stdout=fs.readFileSync(m[1],'utf-8'); }
+    const result = runTwg(args, { timeout: 15000 });
+    if (result.error || result.status!==0) return res.status(502).json({success:false,error:twgErrorMessage(result)});
+    const stdout = readTwgOutput(result.stdout);
     const data = JSON.parse(stdout);
     const results = (data.data&&Array.isArray(data.data.results))?data.data.results:Array.isArray(data.results)?data.results:[];
     const items = results.map(r=>{ const title=r.title||r.content?.title||""; const id=r.content?.id||r.id||""; const rawUrl=r.url||""; const sm=rawUrl.match(/\/spaces\/([^/]+)\/pages/); const spaceKey=sm?sm[1]:r.spaceKey||""; const url=rawUrl.startsWith("http")?rawUrl:`https://aztecnologia.atlassian.net/wiki${rawUrl}`; const lastModified=r.lastModified||r.updated||""; const vm=title.match(/(?:v)?(\d+\.\d+(?:\.\d+)?[A-Z0-9\.\-]*) /i)||title.match(/(?:v)?(\d+\.\d+(?:\.\d+)?[A-Z0-9\.\-]*)$/i); const version=vm?vm[1]:""; return {id,title,spaceKey,url,lastModified,version}; }).filter(i=>i.id);
@@ -845,10 +810,9 @@ app.get("/api/release/pdf", async (req, res) => {
     const fetchContentHtml = async (id) => {
       try {
         const args = ["confluence","content","get",id,"--format","html","--detail","full","--include-metadata","--output","json"];
-        const r = spawnSync("/opt/twg/bin/twg", args, { encoding:"utf-8", timeout:10000, env:{...process.env, HOME: process.env.HOME || "/home/app", PATH:"/opt/twg/bin:"+ (process.env.PATH||"")} });
+        const r = runTwg(args, { timeout: 10000 });
         if (r.error || r.status!==0) return "";
-        let out = r.stdout||"";
-        if (!out.trim().startsWith("{")) { const m=out.match(/stdout:\\s*"([^"]+)"/); if(m) out=fs.readFileSync(m[1],'utf-8'); }
+        const out = readTwgOutput(r.stdout);
         const d = JSON.parse(out);
         const payload = d.data||d;
         const html = payload.body?.value || payload.body?.storage?.value || "";
@@ -1062,10 +1026,9 @@ app.get("/api/release/pdf-jira", async (req, res) => {
     if (!dateFrom && !dateTo) parts.push('lastmodified >= now("-365d")');
     const cql = parts.join(" AND ");
     const args = ["confluence","search","query","--cql",cql,"--limit","50","--output","json"];
-    const result = spawnSync("/opt/twg/bin/twg", args, { encoding:"utf-8", timeout:15000, env:{...process.env, HOME: process.env.HOME || "/home/app", PATH:"/opt/twg/bin:"+ (process.env.PATH||"")} });
-    if (result.error || result.status!==0) return res.status(502).json({success:false,error:"TWG indisponível"});
-    let stdout = result.stdout||"";
-    if (!stdout.trim().startsWith("{")) { const m=stdout.match(/stdout:\\s*"([^"]+)"/); if(m) stdout=fs.readFileSync(m[1],'utf-8'); }
+    const result = runTwg(args, { timeout: 15000 });
+    if (result.error || result.status!==0) return res.status(502).json({success:false,error:twgErrorMessage(result)});
+    const stdout = readTwgOutput(result.stdout);
     const data = JSON.parse(stdout);
     const results = (data.data&&Array.isArray(data.data.results))?data.data.results:Array.isArray(data.results)?data.results:[];
     const items = results.map(r=>{ const title=r.title||r.content?.title||""; const id=r.content?.id||r.id||""; const rawUrl=r.url||""; const sm=rawUrl.match(/\/spaces\/([^/]+)\/pages/); const spaceKey=sm?sm[1]:r.spaceKey||""; const url=rawUrl.startsWith("http")?rawUrl:`https://aztecnologia.atlassian.net/wiki${rawUrl}`; const lastModified=r.lastModified||r.updated||""; const vm=title.match(/(?:v)?(\d+\.\d+(?:\.\d+)?[A-Z0-9\.\-]*) /i)||title.match(/(?:v)?(\d+\.\d+(?:\.\d+)?[A-Z0-9\.\-]*)$/i); const version=vm?vm[1]:""; return {id,title,spaceKey,url,lastModified,version}; }).filter(i=>i.id);
@@ -1085,9 +1048,8 @@ app.get("/api/release/pdf-jira", async (req, res) => {
     // Helper to fetch content and extract keys
     const fetchContent = (id) => {
       const args2 = ["confluence","content","get",id,"--format","html","--detail","full","--include-metadata","--output","json"];
-      const r = spawnSync("/opt/twg/bin/twg", args2, { encoding:"utf-8", timeout:10000, env:{...process.env, HOME: process.env.HOME || "/home/app", PATH:"/opt/twg/bin:"+ (process.env.PATH||"")} });
-      let out = r.stdout||"";
-      if (!out.trim().startsWith("{")) { const m=out.match(/stdout:\\s*"([^"]+)"/); if(m) out=fs.readFileSync(m[1],'utf-8'); }
+      const r = runTwg(args2, { timeout: 10000 });
+      const out = readTwgOutput(r.stdout);
       try { const d=JSON.parse(out); const payload = d.data?.page || d.data || d; const html = payload.body?.storage?.value || payload.body?.value || ""; return html; } catch { return ""; }
     };
 

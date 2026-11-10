@@ -21,8 +21,9 @@ services:
       # Persistencia do SQLite (usuarios aprovados)
       - ./data:/app/data
       # TWG auth e binário para busca Confluence
-      - /home/casa/.local/bin:/opt/twg/bin:ro
-      - /home/casa/.config/twg:/home/app/.config/twg
+      # (padroes Linux do host; sobrescreva TWG_BIN_HOST/TWG_CONFIG_HOST se preciso)
+      - ${TWG_BIN_HOST:-/home/casa/.local/bin}:/opt/twg/bin:ro
+      - ${TWG_CONFIG_HOST:-/home/casa/.config/twg}:/home/app/.config/twg
       # Cache gravável do TWG dentro do container
       - ./data/twg-cache:/home/app/.cache/twg
     healthcheck:

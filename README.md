@@ -43,6 +43,33 @@ Acesse `http://localhost:3000/` para visualizar os chamados em uma tabela.
 2. Instale dependências: `npm install`
 3. Rode: `npm start` (ou `npm run dev` para modo watch)
 
+### Rodando local no Windows
+
+O app roda nativamente no Windows (`npm start`), sem Docker. A busca de Notas de
+Release usa o CLI do **TWG**, que precisa estar instalado e autenticado na máquina:
+
+```powershell
+twg --version   # deve imprimir a versao (ex.: 1.4.4)
+```
+
+Se o `twg` já estiver no `PATH`, nada mais é preciso. Se estiver em outro lugar,
+aponte o executável no `.env`:
+
+```
+TWG_BIN=C:\Users\<usuario>\AppData\Local\Programs\twg\bin\twg.exe
+```
+
+No Windows a configuração do TWG (perfis de autenticação) fica em `%APPDATA%\twg`.
+Sem o TWG instalado, apenas os endpoints de Notas de Release respondem
+`502` — o restante do app continua funcionando.
+
+Para expor o container com túnel ngrok no Windows, use `start-expose.ps1`
+(equivalente Windows de `start-expose.sh`):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\start-expose.ps1
+```
+
 ## Docker
 
 Build e execução:
