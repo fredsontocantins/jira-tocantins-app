@@ -1038,7 +1038,7 @@ function normalizeClosedIssue(issue, project) {
   const resolutionRaw = f.resolutiondate || f.resolution?.date || "";
   const cycles = Array.isArray(f.customfield_10084?.completedCycles) ? f.customfield_10084.completedCycles : [];
   const tipo = f.issuetype?.name || "";
-  const noExpiryTypes = ["Adaptativa", "Banco de Dados"];
+  const noExpiryTypes = ["Adaptativa", "Banco de Dados", "Dúvida"];
   const isNoExpiry = noExpiryTypes.some(t => t.toLowerCase() === tipo.toLowerCase());
   return {
     key: issue.key,
