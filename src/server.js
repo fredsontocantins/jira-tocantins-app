@@ -1012,11 +1012,20 @@ function countBy(items, field) {
     .map(([label, count]) => ({ label, count }));
 }
 
+function withPercent(entries, total) {
+  return entries.map((e) => ({
+    ...e,
+    percent: total ? Number(((e.count / total) * 100).toFixed(1)) : 0,
+  }));
+}
+
 function buildDashboard(items) {
+  const total = items.length;
   return {
-    total: items.length,
-    porTipo: countBy(items, "issuetype"),
-    porPrioridade: countBy(items, "priority"),
+    total,
+    porTipo: withPercent(countBy(items, "issuetype"), total),
+    porPrioridade: withPercent(countBy(items, "priority"), total),
+    expirados: withPercent(countBy(items, "expirado"), total),
   };
 }
 
@@ -1045,7 +1054,7 @@ function normalizeClosedIssue(issue, project) {
 }
 
 async function fetchClosedIssues(project, dateFrom, dateTo, maxResults) {
-  let jql = `project = "${project}" AND statusCategory = Done`;
+  let jql = `project = "${project}" AND status = "Encerrado"`;
   if (dateFrom) jql += ` AND resolved >= "${dateFrom}"`;
   if (dateTo) jql += ` AND resolved <= "${dateTo}"`;
   const issues = await fetchIssuesByJql(jql, CHAMADOS_FIELDS, maxResults);
@@ -1117,61 +1126,129 @@ app.get("/api/chamados/encerrados/pdf", async (req, res) => {
       return lines.length ? lines : [""];
     };
 
+    // Paleta da aplicacao: navy #002436, accent #EA4F24, verde #198754, vermelho #DC3545
+    const NAVY = rgb(0, 36 / 255, 54 / 255);
+    const ACCENT = rgb(234 / 255, 79 / 255, 36 / 255);
+    const GREEN = rgb(25 / 255, 135 / 255, 84 / 255);
+    const RED = rgb(220 / 255, 53 / 255, 69 / 255);
+    const MUTED = rgb(87 / 255, 87 / 255, 86 / 255);
+    const BORDER = rgb(222 / 255, 226 / 255, 230 / 255);
+    const CARD = rgb(248 / 255, 249 / 255, 250 / 255);
+    const TRACK = rgb(238 / 255, 240 / 255, 242 / 255);
+    const WHITE = rgb(1, 1, 1);
+    const pct = (n, t) => `${(t ? (n / t) * 100 : 0).toFixed(1).replace(".", ",")}%`;
+
     let page = pdfDoc.addPage([PAGE_W, PAGE_H]);
     let y = PAGE_H - MARGIN;
 
     const drawTitle = () => {
-      page.drawText("Relatorio de Chamados Encerrados", { x: MARGIN, y: y - 4, font: bold, size: 16, color: rgb(0.1,0.15,0.25) });
-      y -= 22;
+      page.drawRectangle({ x: 0, y: PAGE_H - 38, width: PAGE_W, height: 38, color: NAVY });
+      page.drawRectangle({ x: 0, y: PAGE_H - 42, width: PAGE_W, height: 4, color: ACCENT });
+      page.drawText("Relatorio de Chamados Encerrados", { x: MARGIN, y: PAGE_H - 24, font: bold, size: 14, color: WHITE });
+      const tag = safe(`PROJETO ${project}`);
+      page.drawText(tag, { x: PAGE_W - MARGIN - bold.widthOfTextAtSize(tag, 9), y: PAGE_H - 22, font: bold, size: 9, color: rgb(0.85, 0.89, 0.92) });
+      y = PAGE_H - 54;
       const periodo = (dateFrom || dateTo)
         ? `Periodo: ${dateFrom || "inicio"} ate ${dateTo || "hoje"}`
         : "Periodo: todos os chamados encerrados";
-      const sub = `Projeto ${project} | ${periodo} | Gerado em ${new Date().toLocaleString("pt-BR")}`;
-      page.drawText(safe(sub), { x: MARGIN, y, font, size: 8, color: rgb(0.35,0.35,0.35) });
-      y -= 20;
+      const sub = `${periodo} | Status: Encerrado | Gerado em ${new Date().toLocaleString("pt-BR")}`;
+      page.drawText(safe(sub), { x: MARGIN, y, font, size: 8, color: MUTED });
+      y -= 16;
+    };
+
+    const expCount = (label) => dashboard.expirados.find((e) => e.label === label)?.count || 0;
+
+    const drawKpis = () => {
+      const kw = (CONTENT_W - 20) / 3;
+      const cards = [
+        { label: "Total de encerrados", value: dashboard.total, sub: "100%", color: NAVY },
+        { label: "SLA expirado", value: expCount("Sim"), sub: pct(expCount("Sim"), dashboard.total), color: RED },
+        { label: "SLA cumprido", value: expCount("Não"), sub: pct(expCount("Não"), dashboard.total), color: GREEN },
+      ];
+      cards.forEach((c, i) => {
+        const x = MARGIN + i * (kw + 10);
+        page.drawRectangle({ x, y: y - 44, width: kw, height: 44, color: CARD, borderColor: BORDER, borderWidth: 0.5 });
+        page.drawRectangle({ x, y: y - 44, width: 4, height: 44, color: c.color });
+        page.drawText(safe(c.label.toUpperCase()), { x: x + 12, y: y - 14, font: bold, size: 7, color: MUTED });
+        page.drawText(String(c.value), { x: x + 12, y: y - 35, font: bold, size: 17, color: c.color });
+        const s = String(c.sub);
+        page.drawText(s, { x: x + kw - 10 - bold.widthOfTextAtSize(s, 9), y: y - 33, font: bold, size: 9, color: c.color });
+      });
+      y -= 56;
+    };
+
+    const drawBarPanel = (x, topY, panelW, title, entries, colorFn) => {
+      page.drawText(safe(title), { x, y: topY, font: bold, size: 9, color: NAVY });
+      const barX = x + 88;
+      const barW = panelW - 88 - 54;
+      let yy = topY - 15;
+      const total = Math.max(1, dashboard.total);
+      entries.slice(0, 6).forEach((e) => {
+        page.drawText(safe(e.label).slice(0, 20), { x, y: yy, font, size: 7, color: MUTED });
+        page.drawRectangle({ x: barX, y: yy - 1, width: barW, height: 8, color: TRACK });
+        page.drawRectangle({ x: barX, y: yy - 1, width: Math.max(1, (e.count / total) * barW), height: 8, color: colorFn(e.label) });
+        const lbl = `${pct(e.count, dashboard.total)} (${e.count})`;
+        page.drawText(lbl, { x: x + panelW - bold.widthOfTextAtSize(lbl, 7), y: yy, font: bold, size: 7, color: NAVY });
+        yy -= 13;
+      });
+      return topY - yy;
+    };
+
+    const prioColor = (label) => {
+      const l = String(label).toLowerCase();
+      if (l.includes("crít") || l.includes("crit")) return rgb(0.5, 0.11, 0.11);
+      if (l.includes("alta")) return rgb(0.49, 0.18, 0.07);
+      if (l.includes("média") || l.includes("media")) return rgb(0.12, 0.23, 0.54);
+      if (l.includes("baixa")) return rgb(0.08, 0.33, 0.18);
+      return ACCENT;
+    };
+
+    const drawSlaPanel = (x, topY, panelW) => {
+      page.drawText("SLA / Expirados", { x, y: topY, font: bold, size: 9, color: NAVY });
+      const sim = expCount("Sim");
+      const nao = expCount("Não");
+      const total = Math.max(1, dashboard.total);
+      const barY = topY - 22;
+      const wNao = (nao / total) * panelW;
+      const wSim = (sim / total) * panelW;
+      page.drawRectangle({ x, y: barY, width: panelW, height: 14, color: TRACK });
+      page.drawRectangle({ x, y: barY, width: wNao, height: 14, color: GREEN });
+      page.drawRectangle({ x: x + wNao, y: barY, width: wSim, height: 14, color: RED });
+      let ly = barY - 12;
+      page.drawRectangle({ x, y: ly, width: 8, height: 8, color: GREEN });
+      page.drawText(safe(`Nao expirados: ${nao} (${pct(nao, dashboard.total)})`), { x: x + 12, y: ly + 1, font, size: 7, color: MUTED });
+      ly -= 12;
+      page.drawRectangle({ x, y: ly, width: 8, height: 8, color: RED });
+      page.drawText(safe(`Expirados: ${sim} (${pct(sim, dashboard.total)})`), { x: x + 12, y: ly + 1, font: bold, size: 7, color: RED });
+      return topY - ly + 6;
     };
 
     const drawDashboard = () => {
-      const porTipo = dashboard.porTipo;
-      const porPrioridade = dashboard.porPrioridade;
-      const rows = Math.max(porTipo.length, porPrioridade.length, 1);
-      const blockH = 32 + rows * 13 + 12;
-      if (y - blockH < MARGIN + 40) {
+      const panelW = (CONTENT_W - 20) / 3;
+      const rows = Math.max(2, Math.min(dashboard.porTipo.length, 6), Math.min(dashboard.porPrioridade.length, 6));
+      const chartsH = 15 + rows * 13 + 6;
+      const needed = 56 + 15 + chartsH + 10;
+      if (y - needed < MARGIN + 40) {
         page = pdfDoc.addPage([PAGE_W, PAGE_H]);
-        y = PAGE_H - MARGIN;
         drawTitle();
       }
-      page.drawRectangle({ x: MARGIN, y: y - 20, width: CONTENT_W, height: 24, color: rgb(0.93,0.95,0.98), borderColor: rgb(0.75,0.82,0.9), borderWidth: 0.5 });
-      page.drawText(safe(`Total de chamados encerrados: ${dashboard.total}`), { x: MARGIN + 8, y: y - 14, font: bold, size: 10, color: rgb(0.15,0.25,0.4) });
-      y -= 32;
-      const colW = (CONTENT_W - 20) / 2;
-      const leftX = MARGIN, rightX = MARGIN + colW + 20;
-      page.drawText("Por tipo", { x: leftX, y, font: bold, size: 9 });
-      page.drawText("Por prioridade", { x: rightX, y, font: bold, size: 9 });
-      y -= 13;
-      const maxCount = Math.max(1, ...porTipo.map((e) => e.count), ...porPrioridade.map((e) => e.count));
-      const barMax = colW - 150;
-      const drawEntries = (entries, x) => {
-        entries.slice(0, 14).forEach((e, idx) => {
-          const yy = y - idx * 13;
-          page.drawText(safe(e.label).slice(0, 28), { x, y: yy, font, size: 7.5 });
-          page.drawText(String(e.count), { x: x + colW - 20, y: yy, font: bold, size: 7.5 });
-          page.drawRectangle({ x: x + 120, y: yy - 1, width: Math.max(2, (e.count / maxCount) * barMax), height: 6, color: rgb(0.25,0.5,0.85) });
-        });
-      };
-      drawEntries(porTipo, leftX);
-      drawEntries(porPrioridade, rightX);
-      y -= rows * 13 + 10;
+      drawKpis();
+      const chartTop = y;
+      drawBarPanel(MARGIN, chartTop, panelW, "Por tipo", dashboard.porTipo, () => NAVY);
+      drawBarPanel(MARGIN + panelW + 10, chartTop, panelW, "Por prioridade", dashboard.porPrioridade, prioColor);
+      const slaH = drawSlaPanel(MARGIN + 2 * (panelW + 10), chartTop, panelW);
+      y = Math.min(chartTop - chartsH, chartTop - slaH) - 8;
     };
     drawTitle();
     drawDashboard();
 
     const drawTableHeader = () => {
-      page.drawRectangle({ x: MARGIN, y: y - 13, width: CONTENT_W, height: 14, color: rgb(0.15,0.3,0.5) });
+      page.drawRectangle({ x: MARGIN, y: y - 14, width: CONTENT_W, height: 15, color: NAVY });
+      page.drawRectangle({ x: MARGIN, y: y - 16, width: CONTENT_W, height: 2, color: ACCENT });
       for (const c of COLUMNS) {
-        page.drawText(c.label, { x: c.x + 2, y: y - 9, font: bold, size: 7, color: rgb(1,1,1) });
+        page.drawText(c.label, { x: c.x + 2, y: y - 10, font: bold, size: 7, color: WHITE });
       }
-      y -= 16;
+      y -= 18;
     };
     drawTableHeader();
 
@@ -1192,22 +1269,26 @@ app.get("/api/chamados/encerrados/pdf", async (req, res) => {
         drawTableHeader();
       }
       if (idx % 2 === 1) {
-        page.drawRectangle({ x: MARGIN, y: y - rowH, width: CONTENT_W, height: rowH, color: rgb(0.96,0.97,0.99) });
+        page.drawRectangle({ x: MARGIN, y: y - rowH, width: CONTENT_W, height: rowH, color: CARD });
       }
       cellLines.forEach((lines, i) => {
         lines.forEach((line, li) => {
-          page.drawText(line, { x: COLUMNS[i].x + PAD_X, y: y - PAD_Y - (li + 1) * LINE_H + 2, font, size: ROW_FONT, color: rgb(0.12,0.12,0.12) });
+          const color = i === 10 ? (it.expirado === "Sim" ? RED : GREEN) : rgb(0.12, 0.12, 0.12);
+          page.drawText(line, { x: COLUMNS[i].x + PAD_X, y: y - PAD_Y - (li + 1) * LINE_H + 2, font, size: ROW_FONT, color });
         });
       });
-      page.drawLine({ start: { x: MARGIN, y: y - rowH }, end: { x: MARGIN + CONTENT_W, y: y - rowH }, thickness: 0.3, color: rgb(0.85,0.85,0.85) });
+      page.drawLine({ start: { x: MARGIN, y: y - rowH }, end: { x: MARGIN + CONTENT_W, y: y - rowH }, thickness: 0.3, color: BORDER });
       y -= rowH;
     }
 
     const pages = pdfDoc.getPages();
     pages.forEach((p, i) => {
+      p.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: 22, color: NAVY });
+      p.drawRectangle({ x: 0, y: 22, width: PAGE_W, height: 2, color: ACCENT });
+      p.drawText(safe(`Chamados encerrados | Projeto ${project}`), { x: MARGIN, y: 8, font, size: 7, color: rgb(0.85, 0.89, 0.92) });
       const label = `Pagina ${i + 1} de ${pages.length}`;
       const w = font.widthOfTextAtSize(label, 8);
-      p.drawText(label, { x: PAGE_W - MARGIN - w, y: 16, font, size: 8, color: rgb(0.4,0.4,0.4) });
+      p.drawText(label, { x: PAGE_W - MARGIN - w, y: 8, font, size: 8, color: WHITE });
     });
 
     const pdfBytes = await pdfDoc.save();
