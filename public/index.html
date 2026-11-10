@@ -119,6 +119,24 @@
     .drawer header h2 { margin:0; font-size:1rem; color:#fff; font-family:'Tomorrow',sans-serif; }
     .drawer .close { background:var(--accent); color:#fff; border:none; padding:4px 10px; border-radius:0; cursor:pointer; }
     .drawer .body { padding:14px 16px; overflow:auto; flex:1; }
+    .release-notes-drawer { width:560px; }
+    .release-notes-list { display:flex; flex-direction:column; gap:10px; }
+    .release-group { margin-bottom:6px; }
+    .release-group h4 { margin:0 0 6px; font-size:.8rem; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; padding-bottom:4px; border-bottom:1px solid var(--border); }
+    .release-item { border:1px solid var(--border); border-radius:0; padding:10px 12px; display:flex; flex-direction:column; gap:6px; background:var(--card2); }
+    .release-item .head { display:flex; justify-content:space-between; align-items:baseline; gap:8px; flex-wrap:wrap; }
+    .release-item .version { font-weight:700; color:var(--navy); font-family:'Tomorrow',sans-serif; font-size:.95rem; }
+    .release-item .date { font-size:.75rem; color:var(--muted); }
+    .release-item .system { font-size:.72rem; color:var(--accent); font-weight:600; text-transform:uppercase; letter-spacing:.04em; }
+    .release-item .summary { font-size:.82rem; color:var(--text); margin-top:2px; }
+    .release-item .actions { display:flex; gap:6px; margin-top:6px; flex-wrap:wrap; }
+    .release-item .actions a { font-size:.78rem; color:var(--accent); text-decoration:none; border:1px solid var(--accent); padding:2px 8px; border-radius:0; }
+    .release-item .actions a:hover { background:var(--accent); color:#fff; }
+    .release-empty { padding:20px; text-align:center; color:var(--muted); font-size:.85rem; }
+    .release-sync { width:100%; padding:8px 12px; border:1px solid var(--border); background:var(--card); color:var(--text); border-radius:0; cursor:pointer; font-size:.85rem; }
+    .release-sync:hover { border-color:var(--accent); }
+    .release-loading { font-size:.8rem; color:var(--muted); }
+    .release-error { color:var(--red); font-size:.8rem; margin-bottom:10px; }
     .lightbox.open { display:flex; }
     .lightbox img { max-width:90vw; max-height:75vh; object-fit:contain; border-radius:0; }
     .lightbox .lb-bar { display:flex; gap:10px; align-items:center; color:#fff; }
@@ -176,7 +194,7 @@
       <button class="secondary" id="toggleTable">Mostrar/Ocultar tabela</button>
       <button class="secondary" id="copyApi">Copiar URL da API</button>
       <button class="secondary" id="exportPdf">📄 Exportar PDF</button>
-      <button class="secondary" id="releaseNotesBtn">📰 Nota de Release</button>
+      <button class="secondary" id="releaseNotesBtn" title="Notas de Release">📋 Notas de Release</button>
       <button class="secondary" id="closedReportBtn">📊 Chamados Encerrados</button>
       <span class="meta" id="hint" style="margin-left:auto;"></span>
     </div>
@@ -302,11 +320,36 @@
     <div class="body" id="drawerContent"></div>
   </div>
 
+  <div class="drawer-backdrop" id="releaseNotesBackdrop"></div>
+  <div class="drawer release-notes-drawer" id="releaseNotesDrawer">
+    <header><h2 id="releaseNotesTitle">Notas de Release</h2><div style="display:flex;gap:6px;"><button id="releaseNotesSync" class="release-sync">↻ Sincronizar agora</button><button class="close" id="releaseNotesClose">✕</button></div></header>
+    <div class="body" id="releaseNotesBody">
+      <div class="release-loading">Carregando notas de release…</div>
+    </div>
+  </div>
+
   <div class="drawer drawer-left" id="drawerLeft">
     <header><h2 id="drawerLeftTitle">Análise do chamado</h2><button class="close" id="drawerLeftClose">✕</button></header>
     <div class="body" id="drawerLeftContent"></div>
   </div>
 
+  <div class="modal-backdrop" id="closedReportBackdrop">
+    <div class="modal" style="max-width:900px;">
+      <button class="close" id="closedReportClose">✕</button>
+      <h2>📊 Relatório de Chamados Encerrados</h2>
+      <div style="margin-bottom:12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+        <label style="margin-right:4px;">Cliente / Projeto:</label>
+        <input id="closedProjectSelect" placeholder="ex: TO" style="padding:6px 10px;border-radius:0;border:1px solid var(--border);background:var(--card);color:var(--text);max-width:220px;" />
+        <label style="margin-left:8px;margin-right:4px;">Período:</label>
+        <input type="date" id="closedDateFrom" style="padding:6px 10px;border-radius:0;border:1px solid var(--border);background:var(--card);color:var(--text);" />
+        <label style="margin-left:4px;margin-right:4px;">até</label>
+        <input type="date" id="closedDateTo" style="padding:6px 10px;border-radius:0;border:1px solid var(--border);background:var(--card);color:var(--text);" />
+        <button class="secondary" id="closedSearchBtn" style="margin-left:4px;">Buscar</button>
+        <button class="secondary" id="closedPdfBtn" style="margin-left:4px;">Gerar PDF</button>
+      </div>
+      <div id="closedResults" class="empty">Selecione projeto e período para buscar chamados encerrados.</div>
+    </div>
+  </div>
   <script>
     const API = "/api/chamados/abertos";
     const charts = {};
@@ -1314,6 +1357,89 @@
     document.getElementById("drawerLeftClose").addEventListener("click", closeDrawer);
     document.getElementById("drawerBackdrop").addEventListener("click", closeDrawer);
 
+    // --- Notas de Release (Confluence) ---
+    function openReleaseNotes(){
+      document.getElementById("releaseNotesDrawer").classList.add("open");
+      document.getElementById("releaseNotesBackdrop").classList.add("open");
+      loadReleaseNotes();
+    }
+    function closeReleaseNotes(){
+      document.getElementById("releaseNotesDrawer").classList.remove("open");
+      document.getElementById("releaseNotesBackdrop").classList.remove("open");
+    }
+    async function loadReleaseNotes(){
+      const body = document.getElementById("releaseNotesBody");
+      body.innerHTML = '<div class="release-loading">Carregando notas de release…</div>';
+      try {
+        const res = await fetch("/api/release-notes", { headers: { "Authorization": "Bearer " + token() } });
+        if (res.status === 503) { body.innerHTML = '<div class="release-error">Confluence não configurado no servidor.</div>'; return; }
+        if (res.status === 401) { body.innerHTML = '<div class="release-error">Sessão expirada. Faça login novamente.</div>'; return; }
+        if (!res.ok) { body.innerHTML = '<div class="release-error">Erro ao carregar notas de release.</div>'; return; }
+        const data = await res.json();
+        renderReleaseNotes(data && data.data ? data.data : []);
+      } catch (e) {
+        body.innerHTML = '<div class="release-error">Falha de rede ao carregar notas de release.</div>';
+      }
+    }
+    function renderReleaseNotes(notes){
+      const body = document.getElementById("releaseNotesBody");
+      if (!notes || notes.length === 0){
+        body.innerHTML = '<div class="release-empty">Nenhuma nota de release encontrada. <button class="release-sync" id="releaseNotesEmptySync">↻ Sincronizar agora</button></div>';
+        document.getElementById("releaseNotesEmptySync")?.addEventListener("click", syncReleaseNotes);
+        return;
+      }
+      // agrupa por sistema
+      const porSistema = {};
+      for (const n of notes) {
+        const sistema = n.system || "Sem sistema";
+        if (!porSistema[sistema]) porSistema[sistema] = [];
+        porSistema[sistema].push(n);
+      }
+      let html = '<div class="release-notes-list">';
+      for (const [sistema, items] of Object.entries(porSistema)) {
+        html += '<div class="release-group"><h4>' + escapeHtml(sistema) + '</h4>';
+        // ordena versões decrescentes
+        items.sort((a,b) => (b.version||"").localeCompare(a.version||""));
+        for (const n of items) {
+          html += '<div class="release-item">';
+          html += '<div class="head"><span class="version">' + escapeHtml(n.version || "Sem versão") + '</span><span class="date">' + (n.published_at ? new Date(n.published_at).toLocaleDateString("pt-BR") : "") + '</span></div>';
+          if (n.system) html += '<span class="system">' + escapeHtml(n.system) + '</span>';
+          if (n.title) html += '<div style="font-weight:600;font-size:.85rem;color:var(--text);margin:2px 0;">' + escapeHtml(n.title) + '</div>';
+          if (n.content_summary) html += '<div class="summary">' + escapeHtml(n.content_summary) + '</div>';
+          html += '<div class="actions"><a href="' + escapeHtml(n.url || "#") + '" target="_blank" rel="noopener">Abrir no Confluence ↗</a></div>';
+          html += '</div>';
+        }
+        html += '</div>';
+      }
+      html += '</div>';
+      body.innerHTML = html;
+    }
+    async function syncReleaseNotes(){
+      const btn = document.getElementById("releaseNotesSync");
+      const body = document.getElementById("releaseNotesBody");
+      const orig = btn.textContent;
+      btn.textContent = "Sincronizando…";
+      btn.disabled = true;
+      try {
+        const res = await fetch("/api/release-notes/sync", { method: "POST", headers: { "Authorization": "Bearer " + token() } });
+        if (res.status === 503) { body.innerHTML = '<div class="release-error">Confluence não configurado no servidor.</div>'; return; }
+        if (res.status === 401) { body.innerHTML = '<div class="release-error">Sessão expirada. Faça login novamente.</div>'; return; }
+        if (!res.ok) { body.innerHTML = '<div class="release-error">Erro ao sincronizar notas de release.</div>'; return; }
+        const data = await res.json();
+        loadReleaseNotes();
+      } catch (e) {
+        body.innerHTML = '<div class="release-error">Falha de rede ao sincronizar notas de release.</div>';
+      } finally {
+        btn.textContent = orig;
+        btn.disabled = false;
+      }
+    }
+    function escapeHtml(s){ if(s==null) return ""; return String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+    document.getElementById("releaseNotesBtn").addEventListener("click", openReleaseNotes);
+    document.getElementById("releaseNotesClose").addEventListener("click", closeReleaseNotes);
+    document.getElementById("releaseNotesBackdrop").addEventListener("click", closeReleaseNotes);
+    document.getElementById("releaseNotesSync").addEventListener("click", syncReleaseNotes);
+
     // Lightbox
     let lbIndex = 0;
     function lbShow(i){
@@ -1973,184 +2099,6 @@
       tableVisible = !tableVisible;
       document.getElementById("tableWrap").style.display = tableVisible ? "block" : "none";
     });
-  </script>
-  <footer class="az-footer">
-    <div class="row">
-      <div class="brand">
-        <img src="https://www.azi.com.br/wp-content/uploads/2023/06/logo_az_white.svg" alt="AZ" style="height:22px;width:auto;" />
-        <span>AZ Tecnologia de gestão · (67) 3303-2700 · ouvidoria@azi.com.br</span>
-      </div>
-      <div class="links">
-        <a href="https://www.azi.com.br/empresa" target="_blank">Empresa</a>
-        <a href="https://www.azi.com.br/solucoes" target="_blank">Soluções</a>
-        <a href="https://www.azi.com.br/blog" target="_blank">Blog</a>
-        <a href="https://www.azi.com.br/contato" target="_blank">Contato</a>
-      </div>
-    </div>
-  </footer>
-  <div class="modal-backdrop" id="releaseNotesBackdrop">
-    <div class="modal" style="max-width:800px;">
-      <button class="close" id="releaseNotesClose">✕</button>
-      <h2>📰 Nota de Release</h2>
-      <div style="margin-bottom:12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
-        <label style="margin-right:4px;">Termo/Versão:</label>
-        <input id="releaseTermInput" placeholder="ex: 2.17.3 ou Nota de Release" style="padding:6px 10px;border-radius:0;border:1px solid var(--border);background:var(--card);color:var(--text);max-width:180px;" />
-        <label style="margin-left:8px;margin-right:4px;">Módulo:</label>
-        <input id="releaseModuleInput" placeholder="opcional" style="padding:6px 10px;border-radius:0;border:1px solid var(--border);background:var(--card);color:var(--text);max-width:160px;" />
-        <label style="margin-left:8px;margin-right:4px;">Espaço:</label>
-        <select id="releaseSpaceSelect" style="padding:6px 10px;border-radius:0;border:1px solid var(--border);background:var(--card);color:var(--text);max-width:220px;">
-          <option value="">Todos</option>
-        </select>
-        <label style="margin-left:8px;margin-right:4px;">De:</label>
-        <input type="date" id="releaseDateFrom" style="padding:6px 10px;border-radius:0;border:1px solid var(--border);background:var(--card);color:var(--text);" />
-        <label style="margin-left:8px;margin-right:4px;">Até:</label>
-        <input type="date" id="releaseDateTo" style="padding:6px 10px;border-radius:0;border:1px solid var(--border);background:var(--card);color:var(--text);" />
-        <button class="secondary" id="releaseSearchBtn" style="margin-left:4px;">Buscar</button>
-        <button class="secondary" id="releasePdfBtn" style="margin-left:4px;">Gerar PDF Confluence</button>
-        <button class="secondary" id="releasePdfJiraBtn" style="margin-left:4px;">Gerar PDF Jira</button>
-      </div>
-      <div id="releaseResults" class="empty">Digite um termo/versão para buscar notas de release em todos os espaços.</div>
-    </div>
-  </div>
-
-  <div class="modal-backdrop" id="closedReportBackdrop">
-    <div class="modal" style="max-width:900px;">
-      <button class="close" id="closedReportClose">✕</button>
-      <h2>📊 Relatório de Chamados Encerrados</h2>
-      <div style="margin-bottom:12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
-        <label style="margin-right:4px;">Cliente / Projeto:</label>
-        <input id="closedProjectSelect" placeholder="ex: TO" style="padding:6px 10px;border-radius:0;border:1px solid var(--border);background:var(--card);color:var(--text);max-width:220px;" />
-        <label style="margin-left:8px;margin-right:4px;">Período:</label>
-        <input type="date" id="closedDateFrom" style="padding:6px 10px;border-radius:0;border:1px solid var(--border);background:var(--card);color:var(--text);" />
-        <label style="margin-left:4px;margin-right:4px;">até</label>
-        <input type="date" id="closedDateTo" style="padding:6px 10px;border-radius:0;border:1px solid var(--border);background:var(--card);color:var(--text);" />
-        <button class="secondary" id="closedSearchBtn" style="margin-left:4px;">Buscar</button>
-        <button class="secondary" id="closedPdfBtn" style="margin-left:4px;">Gerar PDF</button>
-      </div>
-      <div id="closedResults" class="empty">Selecione projeto e período para buscar chamados encerrados.</div>
-    </div>
-  </div>
-  <script>
-  // Release Notes modal
-  document.getElementById('releaseNotesBtn')?.addEventListener('click',async()=>{
-    const backdrop=document.getElementById('releaseNotesBackdrop');
-    backdrop.classList.add('open');
-    const sel=document.getElementById('releaseSpaceSelect');
-    if(sel && sel.options.length===1){
-      try{
-        const r=await fetch('/api/release/spaces');
-        const d=await r.json();
-        if(d.success && Array.isArray(d.spaces)){
-          d.spaces.forEach(s=>{
-            const o=document.createElement('option');
-            o.value=s.key;
-            o.textContent=`${s.name} (${s.key})`;
-            sel.appendChild(o);
-          });
-        }
-      }catch(e){console.error(e);}
-    }
-  });
-  document.getElementById('releaseNotesClose')?.addEventListener('click',()=>{document.getElementById('releaseNotesBackdrop').classList.remove('open');});
-  document.getElementById('releaseNotesBackdrop')?.addEventListener('click',e=>{if(e.target.id==='releaseNotesBackdrop')document.getElementById('releaseNotesBackdrop').classList.remove('open');});
-  document.getElementById('releasePdfBtn')?.addEventListener('click',async()=>{
-    const term=document.getElementById('releaseTermInput').value.trim();
-    const space=document.getElementById('releaseSpaceSelect').value.trim();
-    let dateFrom=document.getElementById('releaseDateFrom').value;
-    let dateTo=document.getElementById('releaseDateTo').value;
-    const norm=(v)=>{ if(!v) return ''; if(v.includes('/')){ const p=v.split('/'); if(p.length===3){ return `${p[2]}-${p[1].padStart(2,'0')}-${p[0].padStart(2,'0')}`; } } return v; };
-    dateFrom=norm(dateFrom); dateTo=norm(dateTo);
-    const params=new URLSearchParams();
-    if(term) params.set('term',term);
-    if(space) params.set('space',space);
-    if(dateFrom) params.set('dateFrom',dateFrom);
-    if(dateTo) params.set('dateTo',dateTo);
-    const url=`/api/release/pdf?${params.toString()}`;
-    window.open(url,'_blank');
-  });
-  document.getElementById('releasePdfJiraBtn')?.addEventListener('click',async()=>{
-    const term=document.getElementById('releaseTermInput').value.trim();
-    const space=document.getElementById('releaseSpaceSelect').value.trim();
-    let dateFrom=document.getElementById('releaseDateFrom').value;
-    let dateTo=document.getElementById('releaseDateTo').value;
-    const norm=(v)=>{ if(!v) return ''; if(v.includes('/')){ const p=v.split('/'); if(p.length===3){ return `${p[2]}-${p[1].padStart(2,'0')}-${p[0].padStart(2,'0')}`; } } return v; };
-    dateFrom=norm(dateFrom); dateTo=norm(dateTo);
-    const params=new URLSearchParams();
-    if(term) params.set('term',term);
-    if(space) params.set('space',space);
-    if(dateFrom) params.set('dateFrom',dateFrom);
-    if(dateTo) params.set('dateTo',dateTo);
-    const url=`/api/release/pdf-jira?${params.toString()}`;
-    window.open(url,'_blank');
-  });
-  document.getElementById('releaseSearchBtn')?.addEventListener('click',async()=>{
-    const term=document.getElementById('releaseTermInput').value.trim();
-    let mod=document.getElementById('releaseModuleInput').value.trim();
-    if(!mod || mod.toLowerCase()==='opcional') mod='';
-    const space=document.getElementById('releaseSpaceSelect').value.trim();
-    let dateFrom=document.getElementById('releaseDateFrom').value;
-    let dateTo=document.getElementById('releaseDateTo').value;
-    // normaliza datas no formato DD/MM/YYYY para YYYY-MM-DD
-    const norm=(v)=>{ if(!v) return ''; if(v.includes('/')){ const p=v.split('/'); if(p.length===3){ return `${p[2]}-${p[1].padStart(2,'0')}-${p[0].padStart(2,'0')}`; } } return v; };
-    dateFrom=norm(dateFrom); dateTo=norm(dateTo);
-    const results=document.getElementById('releaseResults');
-    results.innerHTML='Buscando...';
-    try{
-      const params=new URLSearchParams();
-      if(term) params.set('term',term);
-      if(mod) params.set('module',mod);
-      if(space) params.set('space',space);
-      if(dateFrom) params.set('dateFrom',dateFrom);
-      if(dateTo) params.set('dateTo',dateTo);
-      const url=`/api/release/search?${params.toString()}`;
-      const res=await fetch(url);
-      const data=await res.json();
-      if(!data.success) throw new Error(data.error||'Erro');
-      const items = Array.isArray(data.items) ? data.items.map(it=>`<div style="margin:6px 0;padding:8px;border:1px solid var(--border);background:var(--card2);">
-        <div style="display:flex;justify-content:space-between;align-items:start;gap:8px;">
-          <div>
-            <div style="font-weight:600;">${it.title}</div>
-            <div style="font-size:12px;color:var(--muted);">${it.spaceKey || ''} • ${it.version || ''} • ${it.lastModified || ''}</div>
-            <div style="margin-top:4px;"><a href="${it.url}" target="_blank">Abrir no Confluence</a></div>
-          </div>
-          <button class="secondary" data-id="${it.id}" data-title="${it.title.replace(/"/g,'&quot;')}" style="padding:4px 8px;">Preview</button>
-        </div>
-      </div>`).join('') : '';
-      results.innerHTML=`<div style="margin-top:12px;">${items||'<div class="empty">Nenhum resultado.</div>'}</div>`;
-      // bind preview buttons
-      results.querySelectorAll('button[data-id]').forEach(btn=>{
-        btn.addEventListener('click',async()=>{
-          const id=btn.getAttribute('data-id');
-          const title=btn.getAttribute('data-title');
-          results.innerHTML=`<div>Carregando conteúdo de ${title}...</div>`;
-          try{
-            const r=await fetch(`/api/release/content?id=${encodeURIComponent(id)}`);
-            const d=await r.json();
-            if(!d.success) throw new Error(d.error||'Erro');
-            const md=d.markdown||'';
-            const blob=new Blob([md],{type:'text/markdown'});
-            const urlD=URL.createObjectURL(blob);
-            const fname=(title.replace(/\s+/g,'_')||'release')+'.md';
-            results.innerHTML=`<div style="margin-top:12px;">
-              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-                <strong>Preview: ${title}</strong>
-                <div>
-                  <a href="${d.meta?.url||''}" target="_blank" class="secondary" style="padding:4px 8px;text-decoration:none;">Confluence</a>
-                  <a href="${urlD}" download="${fname}" class="secondary" style="padding:4px 8px;margin-left:6px;text-decoration:none;">Exportar .md</a>
-                </div>
-              </div>
-              <pre style="white-space:pre-wrap;background:var(--card2);padding:10px;border:1px solid var(--border);max-height:400px;overflow:auto;">${md}</pre>
-            </div>`;
-          }catch(e){
-            results.innerHTML=`<div style="color:var(--red);">Erro ao carregar: ${e.message}</div>`;
-          }
-        });
-      });
-    }catch(err){
-      results.innerHTML=`<div style="color:var(--red);margin-top:12px;">Erro: ${err.message}</div>`;
-    }
-  });
-
   // Closed tickets report modal
   document.getElementById('closedReportBtn')?.addEventListener('click', async ()=>{
     const backdrop=document.getElementById('closedReportBackdrop');
@@ -2208,5 +2156,19 @@
     window.open(`/api/chamados/encerrados/pdf?${params.toString()}`, '_blank');
   });
   </script>
+  <footer class="az-footer">
+    <div class="row">
+      <div class="brand">
+        <img src="https://www.azi.com.br/wp-content/uploads/2023/06/logo_az_white.svg" alt="AZ" style="height:22px;width:auto;" />
+        <span>AZ Tecnologia de gestão · (67) 3303-2700 · ouvidoria@azi.com.br</span>
+      </div>
+      <div class="links">
+        <a href="https://www.azi.com.br/empresa" target="_blank">Empresa</a>
+        <a href="https://www.azi.com.br/solucoes" target="_blank">Soluções</a>
+        <a href="https://www.azi.com.br/blog" target="_blank">Blog</a>
+        <a href="https://www.azi.com.br/contato" target="_blank">Contato</a>
+      </div>
+    </div>
+  </footer>
 </body>
 </html>

@@ -16,6 +16,7 @@ import { isPipefyConfigured, fetchPipe, fetchCards, createCardFromIssue, syncIss
 import { login, logout, getSessionFromRequest, requireAuth, requireAdmin, requireProjectScope, filterProjectsForSession, requestedProject, issueProjectGuard, createSession } from "./auth.js";
 import { verifyGoogleIdToken } from "./googleAuth.js";
 import { upsertPendingUser, getUserByEmail, listUsers, approveUser, rejectUser, updateUserScope, isAdminEmail, ADMIN_EMAIL } from "./users.js";
+import { syncReleaseNotes, listReleaseNotes, getStatus } from "./release-notes.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const LOGO_PATH = path.join(__dirname, 'assets', 'logo_az_white.png');
@@ -1476,6 +1477,35 @@ app.get("/api/chamados/encerrados/pdf", async (req, res) => {
     res.setHeader("Content-Disposition", `attachment; filename="chamados-encerrados-${project}-${Date.now()}.pdf"`);
     res.send(Buffer.from(pdfBytes));
   } catch(err){ console.error("pdf encerrados error:",err); res.status(502).json({success:false,error:err.message}); }
+});
+// ===== Notas de Release (Confluence) =====
+app.get("/api/release-notes", requireAuth, async (req, res) => {
+  try {
+    if (!getStatus().configurado) {
+      return res.status(503).json({ success: false, error: "Confluence não configurado (CONFLUENCE_EMAIL/CONFLUENCE_TOKEN ausentes)." });
+    }
+    const { version, system, limit } = req.query;
+    const data = listReleaseNotes({ version, system, limit });
+    res.json({ success: true, count: data.length, data, fetchedAt: new Date().toISOString() });
+  } catch (err) {
+    res.status(502).json({ success: false, error: err.message });
+  }
+});
+
+app.post("/api/release-notes/sync", requireAuth, async (req, res) => {
+  try {
+    if (!getStatus().configurado) {
+      return res.status(503).json({ success: false, error: "Confluence não configurado (CONFLUENCE_EMAIL/CONFLUENCE_TOKEN ausentes)." });
+    }
+    const resultado = await syncReleaseNotes();
+    res.json({ success: true, ...resultado, syncedAt: new Date().toISOString() });
+  } catch (err) {
+    res.status(err.status || 502).json({ success: false, error: err.message });
+  }
+});
+
+app.get("/api/release-notes/status", requireAuth, async (req, res) => {
+  res.json({ success: true, ...getStatus(), checkedAt: new Date().toISOString() });
 });
 
 // 404 JSON para rotas /api desconhecidas (nunca HTML)
