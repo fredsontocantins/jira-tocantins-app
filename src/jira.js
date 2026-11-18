@@ -11,7 +11,7 @@ const JIRA_ERROR_MESSAGES = {
 
 const JIRA_TIMEOUT = 30000;
 
-async function jiraFetch(path, options = {}) {
+export async function jiraFetch(path, options = {}) {
   const url = `${config.jira.domain}${path}`;
   let res;
   try {
@@ -445,6 +445,20 @@ export async function createComment(key, bodyText, { internal = false, mentions 
   return normalizeComment(data);
 }
 
+// Busca accountId de um usuário do Jira por email (para preencher reporter automaticamente)
+export async function getJiraAccountIdByEmail(email) {
+  if (!email) return null;
+  try {
+    const data = await jiraFetch(`/rest/api/3/user/search?query=${encodeURIComponent(email)}&maxResults=1`);
+    if (Array.isArray(data) && data.length > 0) {
+      return data[0].accountId || null;
+    }
+  } catch (err) {
+    console.warn("getJiraAccountIdByEmail falhou:", err.message);
+  }
+  return null;
+}
+
 export async function fetchWorklogs(key) {
   const data = await jiraFetch(`/rest/api/3/issue/${encodeURIComponent(key)}/worklog`);
   return (data.worklogs || []).map((w) => ({
@@ -460,6 +474,60 @@ export async function fetchWorklogs(key) {
 
 export async function fetchAttachmentMeta(id) {
   return jiraFetch(`/rest/api/3/attachment/${encodeURIComponent(id)}`);
+}
+
+// Nomes que devem estar sempre disponíveis na busca inicial do dropdown de responsável.
+const USUARIOS_PRIORITARIOS = ["FREDSON CHAVES DE SOUSA", "ADRIANA OLIVEIRA", "AMANDA AMORIM MARINHO"];
+
+// Busca usuários do Jira para dropdown de responsavel (assignee)
+// Sempre envia o parâmetro query (mesmo vazio) para o Jira retornar a lista completa.
+// Limite elevado para incluir todos os usuários ativos.
+// Quando não há filtro (query vazio), garante que os usuários prioritários apareçam na lista inicial.
+export async function searchJiraUsers(query = "", maxResults = 100) {
+  const params = new URLSearchParams();
+  params.set("query", query);
+  params.set("maxResults", String(maxResults));
+  params.set("includeInactive", "false");
+  const data = await jiraFetch(`/rest/api/3/users/search?${params}`);
+  const seen = new Map();
+  for (const u of (data || [])) {
+    seen.set(u.accountId, {
+      accountId: u.accountId || null,
+      name: u.displayName || u.name || null,
+      email: u.emailAddress || null,
+      active: u.active !== false,
+      avatarUrl: u.avatarUrls?.["48x48"] || null,
+    });
+  }
+
+  // Busca inicial (sem filtro): garante que os usuários prioritários apareçam,
+  // mesmo que o Jira não os retorne com query vazio.
+  if (!query || query.trim() === "") {
+    for (const nome of USUARIOS_PRIORITARIOS) {
+      try {
+        const paramsExtra = new URLSearchParams();
+        paramsExtra.set("query", nome);
+        paramsExtra.set("maxResults", "5");
+        paramsExtra.set("includeInactive", "false");
+        const extra = await jiraFetch(`/rest/api/3/users/search?${paramsExtra}`);
+        for (const u of (extra || [])) {
+          if (!seen.has(u.accountId)) {
+            seen.set(u.accountId, {
+              accountId: u.accountId || null,
+              name: u.displayName || u.name || null,
+              email: u.emailAddress || null,
+              active: u.active !== false,
+              avatarUrl: u.avatarUrls?.["48x48"] || null,
+            });
+          }
+        }
+      } catch (err) {
+        console.warn(`searchJiraUsers: busca prioritária para "${nome}" falhou:`, err.message);
+      }
+    }
+  }
+
+  return Array.from(seen.values());
 }
 
 // Agrega atividade recente (transições de status/assignee + comentários) dos chamados abertos

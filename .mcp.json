@@ -21,6 +21,211 @@
     "context7": {
       "type": "http",
       "url": "https://mcp.context7.com/mcp"
+    },
+    "mem0": {
+      "command": "npx",
+      "args": ["-y", "mem0-mcp@latest"],
+      "env": {
+        "MEM0_API_KEY": "SUA_CHAVE_MEM0_AQUI"
+      }
+    },
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "SEU_TOKEN_GITHUB_AQUI"
+      }
+    },
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/casa/jira-tocantins-app"]
+    },
+    "memory": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-memory"],
+      "autoStart": false
+    },
+    "brave-search": {
+      "command": "npx",
+      "args": ["-y", "@anthropic-ai/brave-search-mcp"],
+      "env": {
+        "BRAVE_API_KEY": "SUA_CHAVE_BRAVE_AQUI"
+      },
+      "autoStart": false
+    },
+    "tavily": {
+      "command": "npx",
+      "args": ["-y", "@tavily/mcp-server"],
+      "env": {
+        "TAVILY_API_KEY": "SUA_CHAVE_TAVILY_AQUI"
+      },
+      "autoStart": false
+    },
+    "playwright": {
+      "command": "npx",
+      "args": ["-y", "@playwright/mcp"],
+      "autoStart": false
+    },
+    "brain-mcp": {
+      "command": "npx",
+      "args": ["-y", "brain-mcp"],
+      "autoStart": false
+    },
+    "code-graph-mcp": {
+      "command": "npx",
+      "args": ["-y", "code-graph-mcp"],
+      "autoStart": false
+    },
+    "flujo": {
+      "command": "npx",
+      "args": ["flujo-ai"],
+      "autoStart": false
+    },
+    "mcp-abap-abap-adt-api": {
+      "command": "npx",
+      "args": ["-y", "mcp-abap-abap-adt-api"],
+      "autoStart": false
+    },
+    "mcp-windows-desktop-automation": {
+      "command": "npx",
+      "args": ["-y", "mcp-windows-desktop-automation"],
+      "autoStart": false
+    },
+    "mcp-veo2": {
+      "command": "npx",
+      "args": ["-y", "mcp-veo2"],
+      "env": {
+        "GOOGLE_API_KEY": "SUA_CHAVE_GOOGLE_AQUI"
+      },
+      "autoStart": false
+    },
+    "mcp-whatsapp-web": {
+      "command": "npx",
+      "args": ["-y", "mcp-whatsapp-web"],
+      "autoStart": false
+    },
+    "find-mcp": {
+      "command": "npx",
+      "args": ["-y", "@agentage/find-mcp"],
+      "autoStart": false
+    },
+    "design-extract": {
+      "command": "npx",
+      "args": ["design-extract-mcp"],
+      "autoStart": false
+    },
+    "anysearch-mcp": {
+      "command": "npx",
+      "args": ["anysearch-mcp-server"],
+      "autoStart": false
+    },
+    "mnemoverse-memory": {
+      "command": "npx",
+      "args": ["-y", "@mnemoverse/mcp-memory-server"],
+      "autoStart": false
+    },
+    "darkmoon": {
+      "command": "npx",
+      "args": ["-y", "@darkmoon_ai/mcp-server"],
+      "env": {
+        "DARKMOON_BASE_URL": "SUA_URL_DARKMOON_AQUI",
+        "DARKMOON_TOKEN": "SEU_TOKEN_DARKMOON_AQUI"
+      },
+      "autoStart": false
+    },
+    "voidly-atlas": {
+      "command": "npx",
+      "args": ["-y", "@voidly/mcp-server@3.0.2"],
+      "autoStart": false
+    },
+    "voidmail": {
+      "command": "npx",
+      "args": ["-y", "@voidly/mcp-email@1.2.1"],
+      "autoStart": false
+    },
+    "screenpipe": {
+      "command": "npx",
+      "args": ["-y", "screenpipe-mcp@latest"],
+      "env": {
+        "SCREENPIPE_LOCAL_API_KEY": "SUA_CHAVE_SCREENPIPE_AQUI"
+      },
+      "autoStart": false
+    },
+    "buywhere": {
+      "command": "npx",
+      "args": ["-y", "@buywhere/mcp-server"],
+      "autoStart": false
+    },
+    "sendraven": {
+      "command": "npx",
+      "args": ["-y", "@sendraven/mcp"],
+      "env": {
+        "SENDRAVEN_API_KEY": "SUA_CHAVE_SENDRAVEN_AQUI"
+      },
+      "autoStart": false
+    },
+    "fractalai-agent-passport": {
+      "command": "npx",
+      "args": ["-y", "@fractalai/agent-passport-mcp"],
+      "autoStart": false
+    },
+    "rea": {
+      "command": "npx",
+      "args": ["-y", "rea-agents@6.1.0", "mcp"],
+      "autoStart": false
+    },
+    "statorigin": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://statorigin.org/mcp"],
+      "autoStart": false
+    },
+    "agentsearch-mcp": {
+      "command": "npx",
+      "args": ["-y", "@agentsearchhq/agentsearch-mcp"],
+      "autoStart": false
+    },
+    "keenable-mcp": {
+      "command": "npx",
+      "args": ["-y", "@keenable/mcp"],
+      "autoStart": false
+    },
+    "brewpage-mcp": {
+      "command": "npx",
+      "args": ["-y", "brewpage-mcp"],
+      "autoStart": false
+    },
+    "yap-mcp": {
+      "command": "npx",
+      "args": ["-y", "github:founden-bot/yap-mcp"],
+      "autoStart": false
+    },
+    "omega-mcp-router": {
+      "command": "npx",
+      "args": ["-y", "@omega.js/mcp-router"],
+      "autoStart": false
+    },
+    "nexus-mcp": {
+      "command": "uvx",
+      "args": ["nexus-mcp"],
+      "autoStart": false
+    },
+    "cve-mcp-server": {
+      "command": "uvx",
+      "args": ["cve-mcp-server"],
+      "autoStart": false
+    },
+    "market-mirror": {
+      "command": "uvx",
+      "args": ["--from", "marketmirror==0.4.2", "marketmirror"],
+      "autoStart": false
+    },
+    "mailveri-mcp": {
+      "command": "uvx",
+      "args": ["--from", "git+https://github.com/mailveri/mailveri-mcp", "mailveri-mcp"],
+      "env": {
+        "MAILVERI_API_KEY": "SUA_CHAVE_MAILVERI_AQUI"
+      },
+      "autoStart": false
     }
   }
 }

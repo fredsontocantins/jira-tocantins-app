@@ -4,7 +4,6 @@ services:
     container_name: jira-tocantins-api
     restart: unless-stopped
     ports:
-      # host:container
       - "${HOST_PORT:-3000}:3000"
     network_mode: bridge
     env_file:
@@ -14,11 +13,8 @@ services:
       - HOST=0.0.0.0
       - PORT=3000
       - HOME=/home/app
-    # Mesmo UID do usuário "casa" no host: permite ler/gravar a configuração
-    # do TWG montada abaixo e garante acesso ao SQLite em ./data.
-    user: "1000:1000"
+    # Removed user directive to avoid permission issues
     volumes:
-      # Persistencia do SQLite (usuarios aprovados)
       - ./data:/app/data
       # TWG auth e binário para busca Confluence
       # (padroes Linux do host; sobrescreva TWG_BIN_HOST/TWG_CONFIG_HOST se preciso)
@@ -26,9 +22,4 @@ services:
       - ${TWG_CONFIG_HOST:-/home/casa/.config/twg}:/home/app/.config/twg
       # Cache gravável do TWG dentro do container
       - ./data/twg-cache:/home/app/.cache/twg
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
+    # Removed healthcheck que exigia /api/health (nao existe)

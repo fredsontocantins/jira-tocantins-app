@@ -73,9 +73,14 @@
     .act-text { font-size:.85rem; margin-top:2px; word-break:break-word; }
     .act-key { color:var(--accent); font-weight:600; cursor:pointer; }
     .act-key:hover { text-decoration:underline; }
-    .modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,.6); display:none; align-items:center; justify-content:center; z-index:1000; padding:20px; }
-    .modal-backdrop.open { display:flex; }
-    .modal { background:var(--card); border:1px solid var(--border); border-radius:0; max-width:720px; width:100%; max-height:80vh; overflow:auto; padding:20px; border-top:4px solid var(--accent); }
+    .modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,.6); display:none; align-items:flex-end; justify-content:center; z-index:1000; padding:0 20px 20px; }
+.modal-backdrop.open { display:flex; }
+.modal { background:var(--card); border:1px solid var(--border); border-radius:0; max-width:720px; width:100%; max-height:80vh; overflow:auto; padding:20px; border-top:4px solid var(--accent); }
+/* Side-by-side modals: quando dois modais estao abertos, posicionar lado a lado */
+#acReportBackdrop.side-by-side { position:fixed; top:0; bottom:0; left:50%; right:0; width:50%; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,.4); z-index:1001; padding:0 10px; }
+#acReportBackdrop.side-by-side .modal { max-width:95%; width:95%; max-height:90vh; }
+#activityControlBackdrop.side-by-side { position:fixed; top:0; bottom:0; left:0; right:50%; width:50%; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,.4); z-index:1000; padding:0 10px; }
+#activityControlBackdrop.side-by-side .modal { max-width:95%; width:95%; max-height:90vh; }
     .modal h2 { margin:0 0 12px; font-size:1.1rem; color:var(--navy); font-family:'Tomorrow',sans-serif; }
     .modal .close { float:right; background:var(--navy); color:#fff; border:none; padding:4px 10px; border-radius:0; cursor:pointer; }
     .modal .section { margin-top:14px; }
@@ -196,6 +201,10 @@
       <button class="secondary" id="exportPdf">📄 Exportar PDF</button>
       <button class="secondary" id="releaseNotesBtn" title="Notas de Release">📋 Notas de Release</button>
       <button class="secondary" id="closedReportBtn">📊 Chamados Encerrados</button>
+
+      <button class="secondary" id="ntpDocumentsBtn" title="Documentos NTP">📄 Documentos NTP</button>
+      <button class="secondary" id="activityControlBtn" title="Controle de Atividades">📋 Controle de Atividades</button>
+      <button class="secondary" id="sortOldestBtn" title="Ordem: mais antigos primeiro">⏳ Mais antigos primeiro</button>
       <span class="meta" id="hint" style="margin-left:auto;"></span>
     </div>
     <div id="errorBox"></div>
@@ -250,6 +259,54 @@
     </div>
   </div>
 
+  <div class="modal-backdrop" id="xrayBatchBackdrop" style="position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1050;align-items:center;justify-content:center;padding:0 20px 20px;">
+    <div class="modal" style="max-width:960px;max-height:90vh;overflow:auto;">
+      <button class="close" id="xrayBatchClose">✕</button>
+      <h2 id="xrayBatchTitle">🔎 Raio-X em Lote — Chamados Mais Antigos</h2>
+      <div style="margin:8px 0 10px 0;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <label style="font-size:.8rem;color:var(--muted);margin:0;">Projeto:</label>
+        <select id="xrayBatchProject" style="padding:4px 8px;border-radius:0;border:1px solid var(--border);background:var(--card);color:var(--text);font-size:.85rem;"></select>
+        <label style="font-size:.8rem;color:var(--muted);margin:0;">Período (dias):</label>
+        <input id="xrayBatchDays" type="number" value="7" min="1" style="padding:4px 8px;border-radius:0;border:1px solid var(--border);background:var(--card);color:var(--text);font-size:.85rem;width:60px;" />
+      </div>
+      <div id="xrayBatchSummary" style="margin-top:10px;"></div>
+      <div id="xrayBatchTableWrap" style="margin-top:14px;overflow:auto;">
+        <table style="width:100%;font-size:.82rem;border-collapse:collapse;">
+          <thead>
+            <tr style="background:var(--navy);color:#fff;">
+              <th style="padding:6px 8px;text-align:left;">Chave</th>
+              <th style="padding:6px 8px;text-align:left;">Raio-X</th>
+              <th style="padding:6px 8px;text-align:left;">Resumo</th>
+              <th style="padding:6px 8px;text-align:left;">Status</th>
+              <th style="padding:6px 8px;text-align:left;">Prioridade</th>
+              <th style="padding:6px 8px;text-align:left;">Responsável</th>
+              <th style="padding:6px 8px;text-align:left;">Criado</th>
+              <th style="padding:6px 8px;text-align:left;">Idade (dias)</th>
+              <th style="padding:6px 8px;text-align:left;">Últ. atualização</th>
+              <th style="padding:6px 8px;text-align:left;">Dias sem atualizar</th>
+              <th style="padding:6px 8px;text-align:left;">Worklogs (h)</th>
+            </tr>
+          </thead>
+          <tbody id="xrayBatchTbody"></tbody>
+        </table>
+      </div>
+      <!-- Painel de detalhes dentro do modal: visualiza tudo do chamado selecionado -->
+      <div id="xrayBatchDetail" style="margin-top:14px;padding:12px;background:var(--card);border:1px solid var(--border);display:none;">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+          <button class="secondary" id="xrayBatchDetailClose" style="padding:4px 10px;">↩ Voltar à lista</button>
+          <span style="font-size:.85rem;color:var(--muted);">Detalhes do chamado</span>
+        </div>
+        <div id="xrayBatchDetailContent">Selecionar um chamado para ver o raio-x completo.</div>
+      </div>
+      <div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">
+        <button class="secondary" id="xrayBatchCopy">📋 Copiar tabela</button>
+        <button class="secondary" id="xrayBatchExport">📄 Exportar PDF</button>
+        <button class="secondary" id="xrayBatchOverdue">⚠ Analisar atrasados</button>
+        <button class="secondary" id="xrayBatchCloseBtn">Fechar</button>
+      </div>
+    </div>
+  </div>
+
   <div class="lightbox" id="lightbox">
     <img id="lbImg" src="" alt="" />
     <div class="lb-bar">
@@ -268,7 +325,7 @@
       <input type="text" id="loginUser" placeholder="Usuário" autocomplete="username" />
       <input type="password" id="loginPass" placeholder="Senha" autocomplete="current-password" />
       <div class="login-error" id="loginError"></div>
-      <button id="loginBtn" type="submit">Entrar</button>
+      <button id="loginBtn" type="button">Entrar</button>
       <div style="text-align:center;margin:14px 0 8px;color:var(--muted);font-size:.8rem;">ou</div>
       <div id="googleBtnContainer" style="display:flex;justify-content:center;"></div>
       <div class="login-error" id="googleError"></div>
@@ -348,6 +405,107 @@
         <button class="secondary" id="closedPdfBtn" style="margin-left:4px;">Gerar PDF</button>
       </div>
       <div id="closedResults" class="empty">Selecione projeto e período para buscar chamados encerrados.</div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="activityReportBackdrop">
+    <div class="modal" style="max-width:960px;">
+      <button class="close" id="activityReportClose">✕</button>
+      <h2>📊 Relatório de Atividade — Suporte Presencial (CSP)</h2>
+      <div style="margin-bottom:12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+        <label style="margin-right:4px;">Período de criação:</label>
+        <input type="date" id="activityDateFrom" style="padding:6px 10px;border-radius:0;border:1px solid var(--border);background:var(--card);color:var(--text);max-width:160px;" />
+        <label style="margin-left:4px;margin-right:4px;">até</label>
+        <input type="date" id="activityDateTo" style="padding:6px 10px;border-radius:0;border:1px solid var(--border);background:var(--card);color:var(--text);max-width:160px;" />
+      </div>
+      <div style="margin-bottom:12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+        <label style="margin-right:4px;">Buscar no resumo:</label>
+        <input type="text" id="activitySearchText" placeholder="Texto do resumo..." style="padding:6px 10px;border-radius:0;border:1px solid var(--border);background:var(--card);color:var(--text);max-width:220px;" />
+        <label style="margin-left:8px;margin-right:4px;">Responsável:</label>
+        <input type="text" id="activityResponsavel" placeholder="Nome do responsável..." style="padding:6px 10px;border-radius:0;border:1px solid var(--border);background:var(--card);color:var(--text);max-width:200px;" />
+        <button class="secondary" id="activitySearchBtn" style="margin-left:4px;">Buscar</button>
+        <button class="secondary" id="activityPdfBtn" style="margin-left:4px;">Gerar PDF</button>
+      </div>
+      <div id="activityResults" class="empty">Selecione o período para buscar chamados do CSP.</div>
+    </div>
+  </div>
+
+  <!-- Modal: Controle de Atividades -->
+  <!-- Modal: Relatório de Atividades (Controle) -->
+  <div class="modal-backdrop" id="acReportBackdrop">
+    <div class="modal" style="max-width:900px;">
+      <button class="close" id="acReportClose">✕</button>
+      <h2>📊 Relatório de Atividades - Controle</h2>
+      <div style="margin-bottom:12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+        <label style="margin-right:4px;">Período:</label>
+        <input type="date" id="acReportDateFrom" style="padding:6px 10px;border-radius:0;border:1px solid var(--border);background:var(--card);color:var(--text);max-width:160px;" />
+        <label style="margin-left:4px;margin-right:4px;">até</label>
+        <input type="date" id="acReportDateTo" style="padding:6px 10px;border-radius:0;border:1px solid var(--border);background:var(--card);color:var(--text);max-width:160px;" />
+        <label style="margin-left:8px;margin-right:4px;">Responsável:</label>
+        <select id="acReportResponsavel" style="padding:6px 10px;border:1px solid var(--border);background:var(--card);color:var(--text);max-width:160px;">
+          <option value="">Todos</option>
+          <option value="Fredson">Fredson</option>
+          <option value="Amanda">Amanda</option>
+          <option value="Adriana">Adriana</option>
+        </select>
+        <button class="secondary" id="acReportSearchBtn" style="margin-left:4px;">Buscar</button>
+        <button class="secondary" id="acReportPdfBtn" style="margin-left:4px;">Gerar PDF</button>
+      </div>
+      <div id="acReportResults" class="empty">Selecione o período para gerar o relatório.</div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="activityControlBackdrop">
+    <div class="modal" style="max-width:720px;">
+      <button class="close" id="activityControlClose">✕</button>
+      <h2>📋 Controle de Atividades</h2>
+      <div style="margin-bottom:12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+        <button class="secondary" id="acNewBtn" style="margin-left:4px;">➕ Nova Atividade</button>
+        <button class="secondary" id="acRefreshBtn" style="margin-left:4px;">🔄 Atualizar</button>
+        <button class="secondary" id="acPendingWaBtn" style="margin-left:4px;">📱 Pendentes WhatsApp</button>
+        <button class="secondary" id="acSendSelectedBtn" style="margin-left:4px;">📤 Enviar Selecionados</button>
+        <button class="secondary" id="acReportBtn" style="margin-left:4px;">📊 Relatório de Atividades</button>
+      </div>
+      <div id="acForm" style="display:none;margin-bottom:16px;padding:12px;border:1px solid var(--border);background:var(--card2);border-radius:0;">
+        <h4 id="acFormTitle" style="margin:0 0 8px;color:var(--navy);">Nova Atividade</h4>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px;">
+          <input type="text" id="acTitulo" placeholder="Título *" value="Atendimento de: " style="flex:1;min-width:200px;padding:6px 10px;border:1px solid var(--border);background:var(--card);color:var(--text);" />
+          <select id="acResponsavel" style="flex:1;min-width:150px;padding:6px 10px;border:1px solid var(--border);background:var(--card);color:var(--text);">
+            <option value="">Responsável</option>
+            <option value="Fredson">Fredson</option>
+            <option value="Amanda">Amanda</option>
+            <option value="Adriana">Adriana</option>
+          </select>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px;">
+          <input type="text" id="acPessoa" placeholder="Pessoa" style="flex:1;min-width:150px;padding:6px 10px;border:1px solid var(--border);background:var(--card);color:var(--text);" />
+          <input type="text" id="acCliente" placeholder="Cliente" value="TOCANTINS" style="flex:1;min-width:150px;padding:6px 10px;border:1px solid var(--border);background:var(--card);color:var(--text);" />
+          <select id="acTipo" style="flex:1;min-width:120px;padding:6px 10px;border:1px solid var(--border);background:var(--card);color:var(--text);">
+            <option value="">Tipo</option>
+            <option value="Atendimento">Atendimento</option>
+            <option value="Chamado">Chamado</option>
+            <option value="Suporte">Suporte</option>
+            <option value="Manutenção">Manutenção</option>
+            <option value="Consultoria">Consultoria</option>
+            <option value="Treinamento">Treinamento</option>
+            <option value="Reunião">Reunião</option>
+            <option value="Visita Técnica">Visita Técnica</option>
+            <option value="Instalação">Instalação</option>
+            <option value="Configuração">Configuração</option>
+            <option value="Outro">Outro</option>
+          </select>
+        </div>
+        <div style="margin-bottom:8px;">
+          <textarea id="acDescricao" placeholder="Descrição" rows="3" style="width:100%;padding:6px 10px;border:1px solid var(--border);background:var(--card);color:var(--text);resize:vertical;"></textarea>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px;align-items:center;">
+          <input type="date" id="acData" style="padding:6px 10px;border:1px solid var(--border);background:var(--card);color:var(--text);max-width:160px;" />
+          <input type="text" id="acWhatsapp" placeholder="WhatsApp (ex: 5563999999999)" style="flex:1;min-width:180px;padding:6px 10px;border:1px solid var(--border);background:var(--card);color:var(--text);" />
+          <button class="secondary" id="acSaveBtn" style="margin-left:4px;">Salvar</button>
+          <button class="secondary" id="acCancelBtn" style="margin-left:4px;">Cancelar</button>
+        </div>
+      </div>
+      <div id="acList" class="empty">Nenhuma atividade registrada.</div>
     </div>
   </div>
   <script>
@@ -891,6 +1049,17 @@
         const analysis = (ja && ja.success) ? ja.data : null;
         const histories = (d.changelog?.histories || []).slice().reverse();
         let html = "";
+        // Acoes de status (transicoes)
+        const issueStatus = (d.issue && d.issue.status) ? d.issue.status : "";
+        html += `<div class="section"><h4>🔄 Alterar Status</h4>`;
+        html += `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">`;
+        // Aberto (id 41)
+        html += `<button class="secondary" onclick="transitionIssue('${key}','41','Aberto')" ${issueStatus === "Aberto" ? "disabled" : ""} style="flex:1 1 auto;">⏺ Aberto</button>`;
+        // Finalizado (id 31)
+        html += `<button class="secondary" onclick="transitionIssue('${key}','31','Finalizado')" ${issueStatus === "Finalizado" ? "disabled" : ""} style="flex:1 1 auto;">✅ Finalizado</button>`;
+        html += `</div>`;
+        html += `<div id="transitionMsg" style="font-size:.8rem;color:var(--muted);margin-top:6px;"></div>`;
+        html += `</div>`;
         // Histórico de mudanças
         html += `<div class="section"><h4>Histórico de mudanças (${histories.length})</h4>`;
         if(histories.length===0) html += '<div class="empty">Sem histórico.</div>';
@@ -967,6 +1136,27 @@
     }
 
     window.__currentIssueKey = null;
+
+    // Transiciona o status de uma issue (ex: Aberto / Finalizado)
+    async function transitionIssue(key, transitionId, transitionName){
+      const msg = document.getElementById("transitionMsg");
+      msg.textContent = "Alterando status…";
+      try {
+        const r = await apiFetch(`/api/issue/${encodeURIComponent(key)}/transition`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ transitionId, transitionName }),
+        });
+        const j = await r.json();
+        if (!j.success) throw new Error(j.error || "Erro ao alterar status.");
+        msg.textContent = `Status alterado para "${j.transition.name}" com sucesso.`;
+        // Reabre o drawer para refletir o novo status
+        setTimeout(()=>{ openIssueDrawer(key); }, 800);
+      } catch (err) {
+        msg.textContent = "Erro: " + err.message;
+      }
+    }
+
     async function openXray(key){
       if(!key) return;
       const backdrop = document.getElementById("xrayBackdrop");
@@ -2155,6 +2345,1436 @@
     const params=new URLSearchParams({project, dateFrom, dateTo});
     window.open(`/api/chamados/encerrados/pdf?${params.toString()}`, '_blank');
   });
+
+  // ===== Modal: Relatório de Atividade (CSP) =====
+  document.getElementById('activityReportBtn')?.addEventListener('click', ()=>{
+    document.getElementById('activityReportBackdrop').classList.add('open');
+    document.getElementById('activityResults').innerHTML = '<div class="empty">Selecione o período para buscar chamados do CSP.</div>';
+  });
+  document.getElementById('activityReportClose')?.addEventListener('click', ()=>{document.getElementById('activityReportBackdrop').classList.remove('open');});
+  document.getElementById('activityReportBackdrop')?.addEventListener('click', e=>{if(e.target.id==='activityReportBackdrop')document.getElementById('activityReportBackdrop').classList.remove('open');});
+
+  // Recalcula estatísticas do dashboard a partir dos itens (usado após filtro local)
+  function countBy(items, key){
+    const map = {};
+    items.forEach(it => { const v = String(it[key] || 'Não informado'); map[v] = (map[v]||0)+1; });
+    return Object.entries(map).map(([label,count]) => ({ label, count })).sort((a,b)=>b.count-a.count);
+  }
+  function withPercent(arr, total){
+    return (arr||[]).map(x => ({ label: x.label, count: x.count, pct: total ? ((x.count/total)*100).toFixed(1) : 0 }));
+  }
+  function buildActivityDashboardFromItems(items){
+    const total = items.length;
+    return {
+      total,
+      porStatus: withPercent(countBy(items, "status"), total),
+      porResponsavel: withPercent(countBy(items, "assignee"), total),
+      porPrioridade: withPercent(countBy(items, "priority"), total),
+      porDia: countBy(items, "created"),
+    };
+  }
+
+  async function activitySearch(){
+    const dateFrom = document.getElementById('activityDateFrom').value;
+    const dateTo = document.getElementById('activityDateTo').value;
+    const searchText = document.getElementById('activitySearchText')?.value || '';
+    const responsavel = document.getElementById('activityResponsavel')?.value || '';
+    const results = document.getElementById('activityResults');
+    if(!dateFrom && !searchText && !responsavel){ alert('Informe a data inicial, um texto para buscar no resumo ou um responsável'); return; }
+    results.innerHTML = 'Buscando…';
+    try {
+      const params = new URLSearchParams();
+      if(dateFrom) params.set('dateFrom', dateFrom);
+      if(dateTo) params.set('dateTo', dateTo);
+      if(searchText) params.set('q', searchText);
+      const res = await apiFetch(`/api/atividade/report?${params.toString()}`);
+      const j = await res.json();
+      if(!j.success) throw new Error(j.error || 'Erro ao buscar relatório.');
+      // Filtro local por responsável (não afeta a consulta ao Jira)
+      if(responsavel){
+        const term = responsavel.toLowerCase().trim();
+        j.items = j.items.filter(it => String(it.assignee?.name || '').toLowerCase().includes(term));
+        j.total = j.items.length;
+        j.dashboard = buildActivityDashboardFromItems(j.items);
+      }
+      renderActivityReport(j);
+    } catch(err){
+      results.innerHTML = `<div style="color:var(--red);">Erro: ${err.message}</div>`;
+    }
+  }
+
+  function renderActivityReport(j){
+    const results = document.getElementById('activityResults');
+    const total = j.total || 0;
+    const dash = j.dashboard || {};
+    const items = j.items || [];
+
+    const chips = (arr) => (arr||[]).map(x => `<span class="badge" style="margin:2px 4px 2px 0;background:#e9ecef;color:var(--text);">${x.label}: ${x.count}</span>`).join('');
+
+    // Estatísticas por responsável com cores específicas
+    const respColors = {
+      'FREDSON CHAVES DE SOUSA': '#198754',
+      'ADRIANA OLIVEIRA': '#dc3545',
+      'AMANDA AMORIM MARINHO': '#ffc107',
+    };
+    const respHtml = Object.entries(dash.porResponsavel || {}).map(([label, count]) => {
+      const color = respColors[label] || '#002436';
+      return `<span class="badge" style="margin:2px 4px 2px 0;background:${color};color:#fff;">${escapeHtml(label)}: ${count}</span>`;
+    }).join('');
+
+    const dashHtml = `
+      <div style="margin-top:12px;padding:12px;border:1px solid var(--border);background:var(--card2);border-radius:0;">
+        <div style="font-weight:700;color:var(--navy);margin-bottom:8px;font-size:1rem;">Total de chamados no período: <span style="color:var(--accent);font-size:1.2rem;">${total}</span></div>
+        <div style="margin-bottom:6px;"><strong>Por status:</strong> ${chips(dash.porStatus||[])}</div>
+        <div style="margin-bottom:6px;"><strong>Por responsável:</strong> ${respHtml}</div>
+        <div style="margin-bottom:6px;"><strong>Por prioridade:</strong> ${chips(dash.porPrioridade||[])}</div>
+        <div style="margin-bottom:4px;"><strong>Por dia:</strong> ${chips(dash.porDia||[])}</div>
+        <div style="margin-top:8px;font-size:.8rem;color:var(--muted);">JQL: ${escapeHtml(j.jql||'')} · Período: ${escapeHtml(j.dateFrom||'')} ${j.dateTo ? 'até ' + escapeHtml(j.dateTo) : ''} ${j.searchQuery ? '| Resumo: ' + escapeHtml(j.searchQuery) : ''} ${document.getElementById('activityResponsavel')?.value ? '| Responsável: ' + escapeHtml(document.getElementById('activityResponsavel').value) : ''}</div>
+      </div>
+    `;
+
+    const rows = items.map(it => {
+      const resp = it.assignee ? escapeHtml(it.assignee.name) : '—';
+      const respClass = respColors[it.assignee?.name] ? 'prio-' + it.assignee.name.replace(/\s+/g,'') : '';
+      return `<tr>
+        <td><strong>${escapeHtml(it.key||'')}</strong> <a href="${escapeHtml(it.url||'')}" target="_blank" style="font-size:.75rem;">↗</a></td>
+        <td>${escapeHtml(it.summary||'')}</td>
+        <td style="cursor:pointer;" onclick="setStatusFilter('${escapeHtml(it.status||'')}')">${escapeHtml(it.status||'—')}</td>
+        <td><span class="badge prio-${escapeHtml(String(it.priority||'').toLowerCase())}">${escapeHtml(it.priority||'—')}</span></td>
+        <td class="${respClass}">${resp}</td>
+        <td>${it.created ? fmtDate(it.created) : '—'}</td>
+        <td>${it.resolutiondate ? fmtDate(it.resolutiondate) : '—'}</td>
+      </tr>`;
+    }).join('');
+
+    const tableHtml = `
+      <div style="margin-top:12px;overflow:auto;">
+        <table style="width:100%;font-size:.8rem;">
+          <thead><tr style="background:var(--navy);color:#fff;">
+            <th style="padding:6px 8px;text-align:left;">Chamado</th>
+            <th style="padding:6px 8px;text-align:left;">Resumo</th>
+            <th style="padding:6px 8px;text-align:left;">Status</th>
+            <th style="padding:6px 8px;text-align:left;">Prioridade</th>
+            <th style="padding:6px 8px;text-align:left;">Responsável</th>
+            <th style="padding:6px 8px;text-align:left;">Criado</th>
+            <th style="padding:6px 8px;text-align:left;">Resolução</th>
+          </tr></thead>
+          <tbody>${rows || '<tr><td colspan="7" style="text-align:center;">Nenhum resultado</td></tr>'}</tbody>
+        </table>
+      </div>
+    `;
+
+    results.innerHTML = dashHtml + tableHtml;
+  }
+
+  document.getElementById('activitySearchBtn')?.addEventListener('click', activitySearch);
+  document.getElementById('activityPdfBtn')?.addEventListener('click', async ()=>{
+    const dateFrom = document.getElementById('activityDateFrom').value;
+    const dateTo = document.getElementById('activityDateTo').value;
+    const searchText = document.getElementById('activitySearchText')?.value || '';
+    if(!dateFrom && !searchText){ alert('Informe a data inicial ou um texto para buscar no resumo'); return; }
+    const params = new URLSearchParams();
+    if(dateFrom) params.set('dateFrom', dateFrom);
+    if(dateTo) params.set('dateTo', dateTo);
+    if(searchText) params.set('q', searchText);
+    try {
+      document.getElementById('activityPdfBtn').textContent = 'Gerando…';
+      const res = await apiFetch(`/api/atividade/report/pdf?${params.toString()}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const disposition = res.headers.get('content-disposition') || '';
+      const match = disposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+      const fileName = match ? match[1].replace(/['"]/g, '') : `atividade-csp-${Date.now()}.pdf`;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch(err){
+      alert('Erro ao gerar PDF: ' + err.message);
+    } finally {
+      document.getElementById('activityPdfBtn').textContent = 'Gerar PDF';
+    }
+  });
+
+  // ===== Modal: Controle de Atividades =====
+  document.getElementById('activityControlBtn')?.addEventListener('click', ()=>{
+    document.getElementById('activityControlBackdrop').classList.add('open');
+    loadActivityControl();
+  });
+  document.getElementById('activityControlClose')?.addEventListener('click', ()=>{document.getElementById('activityControlBackdrop').classList.remove('open'); document.getElementById('activityControlBackdrop').classList.remove('side-by-side'); document.getElementById('acReportBackdrop').classList.remove('side-by-side');});
+  document.getElementById('activityControlBackdrop')?.addEventListener('click', e=>{if(e.target.id==='activityControlBackdrop'){document.getElementById('activityControlBackdrop').classList.remove('open'); document.getElementById('activityControlBackdrop').classList.remove('side-by-side'); document.getElementById('acReportBackdrop').classList.remove('side-by-side');}});
+
+  // Variáveis para controle de edição e seleção
+  let acEditingId = null;
+  let acSelectedIds = new Set();
+
+  document.getElementById('acNewBtn')?.addEventListener('click', ()=>{
+    acEditingId = null;
+    document.getElementById('acForm').style.display = 'block';
+    document.getElementById('acFormTitle').textContent = 'Nova Atividade';
+    document.getElementById('acTitulo').value = 'Atendimento de: ';
+    document.getElementById('acDescricao').value = '';
+    document.getElementById('acResponsavel').value = '';
+    document.getElementById('acPessoa').value = '';
+    document.getElementById('acCliente').value = 'TOCANTINS';
+    document.getElementById('acTipo').value = '';
+    document.getElementById('acData').value = new Date().toISOString().slice(0,10);
+    document.getElementById('acWhatsapp').value = '';
+  });
+
+  document.getElementById('acSendSelectedBtn')?.addEventListener('click', sendSelectedToWhatsapp);
+  document.getElementById('acCancelBtn')?.addEventListener('click', ()=>{
+    document.getElementById('acForm').style.display = 'none';
+    acEditingId = null;
+  });
+  document.getElementById('acRefreshBtn')?.addEventListener('click', loadActivityControl);
+  document.getElementById('acPendingWaBtn')?.addEventListener('click', loadPendingWhatsapp);
+
+  // ===== Relatório de Atividades (Controle) =====
+  document.getElementById('acReportBtn')?.addEventListener('click', ()=>{
+    const acOpen = document.getElementById('activityControlBackdrop').classList.contains('open');
+    const reportBackdrop = document.getElementById('acReportBackdrop');
+    reportBackdrop.classList.add('open');
+    if(acOpen){
+      reportBackdrop.classList.add('side-by-side');
+      document.getElementById('activityControlBackdrop').classList.add('side-by-side');
+    }
+    document.getElementById('acReportResults').innerHTML = '<div class="empty">Selecione o período para gerar o relatório.</div>';
+  });
+  document.getElementById('acReportClose')?.addEventListener('click', ()=>{document.getElementById('acReportBackdrop').classList.remove('open'); document.getElementById('acReportBackdrop').classList.remove('side-by-side'); document.getElementById('activityControlBackdrop').classList.remove('side-by-side');});
+  document.getElementById('acReportBackdrop')?.addEventListener('click', e=>{if(e.target.id==='acReportBackdrop'){document.getElementById('acReportBackdrop').classList.remove('open'); document.getElementById('acReportBackdrop').classList.remove('side-by-side'); document.getElementById('activityControlBackdrop').classList.remove('side-by-side');}});
+
+  document.getElementById('acReportSearchBtn')?.addEventListener('click', acReportSearch);
+  document.getElementById('acReportPdfBtn')?.addEventListener('click', acReportPdf);
+
+  async function acReportSearch(){
+    const dateFrom = document.getElementById('acReportDateFrom').value;
+    const dateTo = document.getElementById('acReportDateTo').value;
+    const responsavel = document.getElementById('acReportResponsavel').value;
+    const results = document.getElementById('acReportResults');
+    if(!dateFrom){ alert('Informe a data inicial'); return; }
+    results.innerHTML = 'Buscando…';
+    try {
+      const params = new URLSearchParams({ dateFrom });
+      if(dateTo) params.set('dateTo', dateTo);
+      if(responsavel) params.set('responsavel', responsavel);
+      const res = await apiFetch(`/api/activity-control/report?${params.toString()}`);
+      const j = await res.json();
+      if(!j.success) throw new Error(j.error || 'Erro ao buscar relatório.');
+      renderAcReport(j);
+    } catch(err){
+      results.innerHTML = `<div style="color:var(--red);">Erro: ${err.message}</div>`;
+    }
+  }
+
+  async function acReportPdf(){
+    const dateFrom = document.getElementById('acReportDateFrom').value;
+    const dateTo = document.getElementById('acReportDateTo').value;
+    const responsavel = document.getElementById('acReportResponsavel').value;
+    if(!dateFrom){ alert('Informe a data inicial'); return; }
+    try {
+      const params = new URLSearchParams({ dateFrom });
+      if(dateTo) params.set('dateTo', dateTo);
+      if(responsavel) params.set('responsavel', responsavel);
+      const res = await apiFetch(`/api/activity-control/report/pdf?${params.toString()}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `relatorio-atividades-${dateFrom}-${dateTo || 'hoje'}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch(err){ alert('Erro ao gerar PDF: ' + err.message); }
+  }
+
+  function renderAcReport(j){
+    const results = document.getElementById('acReportResults');
+    const items = j.items || [];
+    const total = j.total || 0;
+    let html = `<div style="margin-top:12px;"><strong>Total: ${total} atividades</strong></div>`;
+    if(items.length === 0){
+      html += '<div class="empty" style="margin-top:8px;">Nenhuma atividade encontrada no período.</div>';
+      results.innerHTML = html;
+      return;
+    }
+    html += '<div style="margin-top:12px;overflow:auto;max-height:400px;"><table style="width:100%;border-collapse:collapse;font-size:.8rem;">';
+    html += '<thead><tr style="background:var(--navy);color:#fff;"><th style="padding:6px;text-align:left;">Título</th><th style="padding:6px;text-align:left;">Responsável</th><th style="padding:6px;text-align:left;">Pessoa</th><th style="padding:6px;text-align:left;">Cliente</th><th style="padding:6px;text-align:left;">Tipo</th><th style="padding:6px;text-align:left;">Data</th><th style="padding:6px;text-align:left;">Status</th><th style="padding:6px;text-align:left;">WhatsApp</th></tr></thead><tbody>';
+    items.forEach((it, idx) => {
+      const bg = idx % 2 === 0 ? 'var(--card)' : 'var(--card2)';
+      const waStatus = it.status === 'reenviado' ? '✅ Reenviado' : (it.whatsapp_enviado ? '✅ Enviado' : '⏳ Pendente');
+      html += `<tr style="background:${bg};">
+        <td style="padding:6px;">${escapeHtml(it.titulo || '')}</td>
+        <td style="padding:6px;">${escapeHtml(it.responsavel || '')}</td>
+        <td style="padding:6px;">${escapeHtml(it.pessoa || '')}</td>
+        <td style="padding:6px;">${escapeHtml(it.cliente || '')}</td>
+        <td style="padding:6px;">${escapeHtml(it.tipo || '')}</td>
+        <td style="padding:6px;">${escapeHtml(it.data_registro || '')}</td>
+        <td style="padding:6px;">${escapeHtml(it.status || '')}</td>
+        <td style="padding:6px;">${waStatus}</td>
+      </tr>`;
+    });
+    html += '</tbody></table></div>';
+    results.innerHTML = html;
+  }
+
+  document.getElementById('acSaveBtn')?.addEventListener('click', async ()=>{
+    const titulo = document.getElementById('acTitulo').value.trim();
+    if(!titulo){ alert('Título é obrigatório'); return; }
+    const body = {
+      titulo,
+      descricao: document.getElementById('acDescricao').value.trim(),
+      responsavel: document.getElementById('acResponsavel').value.trim(),
+      pessoa: document.getElementById('acPessoa').value.trim(),
+      cliente: document.getElementById('acCliente').value.trim(),
+      tipo: document.getElementById('acTipo').value.trim(),
+      data_registro: document.getElementById('acData').value,
+      whatsapp_numero: document.getElementById('acWhatsapp').value.trim()
+    };
+    try {
+      let res;
+      if(acEditingId){
+        res = await apiFetch(`/api/activity-control/${acEditingId}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+      } else {
+        res = await apiFetch('/api/activity-control', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+      }
+      const j = await res.json();
+      if(!j.success) throw new Error(j.error || 'Erro ao salvar');
+      document.getElementById('acForm').style.display = 'none';
+      acEditingId = null;
+      if(j.needsResend){
+        alert('Atividade editada! Status alterado para "Editada" - necessário reenviar via WhatsApp.');
+      }
+      loadActivityControl();
+    } catch(err){ alert('Erro: ' + err.message); }
+  });
+
+  async function loadActivityControl(){
+    const list = document.getElementById('acList');
+    list.innerHTML = 'Carregando...';
+    try {
+      const res = await apiFetch('/api/activity-control?limit=50');
+      const j = await res.json();
+      if(!j.success) throw new Error(j.error || 'Erro ao carregar');
+      if(!j.items || j.items.length===0){ list.innerHTML = '<div class="empty">Nenhuma atividade registrada.</div>'; return; }
+      let html = '<div style="max-height:400px;overflow:auto;">';
+      html += '<div style="margin-bottom:8px;display:flex;align-items:center;gap:8px;"><input type="checkbox" id="acSelectAll" onchange="toggleSelectAll(this.checked)" /><label for="acSelectAll" style="font-size:.8rem;color:var(--muted);">Selecionar todos</label></div>';
+      j.items.forEach(it => {
+        const isEdited = it.status === 'editada';
+        const isResent = it.status === 'reenviado';
+        const waStatus = isResent ? '✅ Reenviado (ok)' : (isEdited ? '✏️ Editada (reenviar)' : (it.whatsapp_enviado ? '✅ Enviado' : '⏳ Pendente'));
+        const waColor = isResent ? 'var(--green)' : (isEdited ? 'var(--orange)' : (it.whatsapp_enviado ? 'var(--green)' : 'var(--orange)'));
+        const checked = acSelectedIds.has(it.id) ? 'checked' : '';
+        html += `<div style="padding:10px;border-bottom:1px solid var(--border);font-size:.85rem;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+            <div style="display:flex;align-items:center;gap:8px;">
+              <input type="checkbox" class="ac-item-checkbox" data-id="${it.id}" ${checked} onchange="toggleItemSelection(${it.id}, this.checked)" />
+              <strong style="color:var(--navy);">${escapeHtml(it.titulo)}</strong>
+            </div>
+            <span style="font-size:.75rem;color:${waColor};">${waStatus}</span>
+          </div>
+          ${it.descricao ? `<div style="color:var(--muted);margin-bottom:4px;">${escapeHtml(it.descricao)}</div>` : ''}
+          <div style="display:flex;flex-wrap:wrap;gap:8px;font-size:.75rem;color:var(--muted);">
+            ${it.responsavel ? `<span>👤 ${escapeHtml(it.responsavel)}</span>` : ''}
+            ${it.pessoa ? `<span>🧑 ${escapeHtml(it.pessoa)}</span>` : ''}
+            ${it.cliente ? `<span>🏢 ${escapeHtml(it.cliente)}</span>` : ''}
+            ${it.tipo ? `<span>📌 ${escapeHtml(it.tipo)}</span>` : ''}
+            <span>📅 ${escapeHtml(it.data_registro || '')}</span>
+          </div>
+          <div style="margin-top:6px;display:flex;gap:6px;">
+            <button class="secondary" style="font-size:.75rem;padding:2px 8px;" onclick="editActivity(${it.id})">✏️ Editar</button>
+            <button class="secondary" style="font-size:.75rem;padding:2px 8px;" onclick="sendToWhatsapp(${it.id})">📱 Enviar WhatsApp</button>
+            <button class="secondary" style="font-size:.75rem;padding:2px 8px;" onclick="deleteActivity(${it.id})">🗑️ Excluir</button>
+          </div>
+        </div>`;
+      });
+      html += '</div>';
+      list.innerHTML = html;
+    } catch(err){ list.innerHTML = `<div style="color:var(--red);">Erro: ${err.message}</div>`; }
+  }
+
+  function toggleSelectAll(checked){
+    document.querySelectorAll('.ac-item-checkbox').forEach(cb => {
+      cb.checked = checked;
+      const id = parseInt(cb.getAttribute('data-id'), 10);
+      if(checked) acSelectedIds.add(id); else acSelectedIds.delete(id);
+    });
+  }
+
+  function toggleItemSelection(id, checked){
+    if(checked) acSelectedIds.add(id); else acSelectedIds.delete(id);
+  }
+
+  async function editActivity(id){
+    try {
+      const res = await apiFetch(`/api/activity-control/${id}`);
+      const j = await res.json();
+      if(!j.success) throw new Error(j.error || 'Erro ao carregar');
+      const it = j.item;
+      acEditingId = id;
+      document.getElementById('acForm').style.display = 'block';
+      document.getElementById('acFormTitle').textContent = 'Editar Atividade';
+      document.getElementById('acTitulo').value = it.titulo || 'Atendimento de: ';
+      document.getElementById('acDescricao').value = it.descricao || '';
+      document.getElementById('acResponsavel').value = it.responsavel || '';
+      document.getElementById('acPessoa').value = it.pessoa || '';
+      document.getElementById('acCliente').value = it.cliente || 'TOCANTINS';
+      document.getElementById('acTipo').value = it.tipo || '';
+      document.getElementById('acData').value = it.data_registro || '';
+      document.getElementById('acWhatsapp').value = it.whatsapp_numero || '';
+    } catch(err){ alert('Erro: ' + err.message); }
+  }
+
+  async function sendSelectedToWhatsapp(){
+    const ids = Array.from(acSelectedIds);
+    if(ids.length === 0){ alert('Selecione pelo menos uma atividade'); return; }
+    try {
+      const res = await apiFetch('/api/activity-control/batch-whatsapp', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ids }) });
+      const j = await res.json();
+      if(!j.success) throw new Error(j.error || 'Erro ao enviar');
+      if(j.waLink){ window.open(j.waLink, '_blank'); }
+      if(j.resentCount && j.resentCount > 0){
+        alert(`${j.resentCount} atividade(s) reenviada(s) com sucesso! Status atualizado para "Reenviado (ok)".`);
+      }
+      acSelectedIds.clear();
+      loadActivityControl();
+    } catch(err){ alert('Erro: ' + err.message); }
+  }
+
+  async function sendToWhatsapp(id){
+    try {
+      const res = await apiFetch(`/api/activity-control/${id}/whatsapp`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({}) });
+      const j = await res.json();
+      if(!j.success) throw new Error(j.error || 'Erro ao enviar');
+      if(j.waLink){ window.open(j.waLink, '_blank'); }
+      if(j.resent){
+        alert('Atividade reenviada com sucesso! Status atualizado para "Reenviado (ok)".');
+      }
+      loadActivityControl();
+    } catch(err){ alert('Erro: ' + err.message); }
+  }
+
+  async function deleteActivity(id){
+    if(!confirm('Excluir esta atividade?')) return;
+    try {
+      const res = await apiFetch(`/api/activity-control/${id}`, { method:'DELETE' });
+      const j = await res.json();
+      if(!j.success) throw new Error(j.error || 'Erro ao excluir');
+      loadActivityControl();
+    } catch(err){ alert('Erro: ' + err.message); }
+  }
+
+  async function loadPendingWhatsapp(){
+    const list = document.getElementById('acList');
+    list.innerHTML = 'Carregando pendentes...';
+    try {
+      const res = await apiFetch('/api/activity-control/pending-whatsapp');
+      const j = await res.json();
+      if(!j.success) throw new Error(j.error || 'Erro ao carregar');
+      if(!j.items || j.items.length===0){ list.innerHTML = '<div class="empty">Nenhuma atividade pendente de WhatsApp.</div>'; return; }
+      let html = '<div style="max-height:400px;overflow:auto;"><h4 style="color:var(--navy);">Pendentes de envio WhatsApp</h4>';
+      j.items.forEach(it => {
+        html += `<div style="padding:8px;border-bottom:1px solid var(--border);font-size:.85rem;">
+          <strong>${escapeHtml(it.titulo)}</strong> - ${escapeHtml(it.whatsapp_numero || 'sem número')}
+          <button class="secondary" style="font-size:.75rem;padding:2px 8px;margin-left:8px;" onclick="sendToWhatsapp(${it.id})">📱 Enviar</button>
+        </div>`;
+      });
+      html += '</div>';
+      list.innerHTML = html;
+    } catch(err){ list.innerHTML = `<div style="color:var(--red);">Erro: ${err.message}</div>`; }
+  }
+
+  // ===== Modal: Nova Tarefa CSP =====
+  const cspBackdrop = document.createElement("div");
+  cspBackdrop.id = "cspBackdrop";
+  cspBackdrop.className = "modal-backdrop";
+  cspBackdrop.innerHTML = `
+    <div class="modal">
+      <button class="close" id="cspClose">✕</button>
+      <h2>➕ Nova Tarefa — Suporte Presencial (CSP)</h2>
+      <div id="cspMsg" style="color:var(--red);font-size:.85rem;margin-bottom:10px;min-height:1.2em;"></div>
+      <div class="section">
+        <label style="display:block;font-weight:600;font-size:.85rem;margin-bottom:4px;">Resumo *</label>
+        <input id="cspSummary" type="text" placeholder="Ex: Instalação de equipamento no cliente X" style="width:100%;box-sizing:border-box;padding:8px 10px;border-radius:0;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:.9rem;" />
+      </div>
+      <div class="section" style="margin-top:12px;display:flex;gap:8px;">
+        <div style="width:48%;">
+          <label style="display:block;font-weight:600;font-size:.85rem;margin-bottom:4px;">Pessoa *</label>
+          <input id="cspPessoa" type="text" placeholder="Nome da pessoa" style="width:100%;box-sizing:border-box;padding:8px 10px;border-radius:0;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:.9rem;" />
+        </div>
+        <div style="width:48%;">
+          <label style="display:block;font-weight:600;font-size:.85rem;margin-bottom:4px;">Cliente *</label>
+          <input id="cspCliente" type="text" placeholder="Nome do cliente" style="width:100%;box-sizing:border-box;padding:8px 10px;border-radius:0;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:.9rem;" />
+        </div>
+      </div>
+      <div class="section" style="margin-top:12px;">
+        <label style="display:block;font-weight:600;font-size:.85rem;margin-bottom:4px;">Descrição</label>
+        <textarea id="cspDescription" rows="4" placeholder="Detalhes da solicitação (opcional)" style="width:100%;box-sizing:border-box;padding:8px 10px;border-radius:0;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:.9rem;"></textarea>
+      </div>
+      <div class="section" style="margin-top:12px;">
+        <label style="display:block;font-weight:600;font-size:.85rem;margin-bottom:4px;">Responsável (opcional)</label>
+        <select id="cspAssignee" style="width:100%;box-sizing:border-box;padding:8px 10px;border-radius:0;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:.9rem;">
+          <option value="">— sem responsável —</option>
+        </select>
+        <div id="cspAssigneeLoading" style="font-size:.75rem;color:var(--muted);margin-top:4px;">Carregando responsáveis…</div>
+      </div>
+      <div class="section" style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end;">
+        <button id="cspCancel" class="secondary">Cancelar</button>
+        <button id="cspCreate" style="background:var(--navy);">Criar Tarefa</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(cspBackdrop);
+
+  // Documentos NTP modal
+  const ntpBackdrop = document.createElement("div");
+  ntpBackdrop.id = "ntpBackdrop";
+  ntpBackdrop.className = "modal-backdrop";
+  ntpBackdrop.innerHTML = `
+    <div class="modal">
+      <button class="close" id="ntpClose">✕</button>
+      <h2>📄 Documentos NTP</h2>
+      <div id="ntpMsg" style="color:var(--red);font-size:.85rem;margin-bottom:10px;min-height:1.2em;"></div>
+      <div id="ntpFolderPath" style="font-size:.75rem;color:var(--muted);margin-bottom:8px;"></div>
+      <div style="display:flex;gap:8px;align-items:center; margin-bottom:12px;">
+        <select id="ntpFolderSelect" style="flex:1;padding:6px 10px;border-radius:0;border:1px solid var(--border);background:var(--card);color:var(--text);font-size:.85rem;">
+          <option value="">-- Selecione uma pasta --</option>
+        </select>
+        <button id="ntpSyncBtn" style="padding:6px 12px;font-size:.85rem;">Sincronizar</button>
+        <button id="ntpDownloadAllBtn" style="padding:6px 12px;font-size:.85rem;">Baixar Todos</button>
+      </div>
+      <div id="ntpList" style="max-height:400px;overflow-y:auto;"></div>
+      <div id="ntpDownloaded" style="margin-top:12px;font-size:.75rem;color:var(--muted);"></div>
+    </div>
+  `;
+  document.body.appendChild(ntpBackdrop);
+
+  let ntpFolders = [];
+  let ntpDocuments = [];
+
+  // Carregar pastas e documentos
+  async function loadNtpDocuments(folderFilter) {
+    try {
+      const r = await apiFetch("/api/ntp/documents?folder=" + (folderFilter || ""));
+      const j = await r.json();
+      if (!j.success) throw new Error(j.error || 'Erro ao carregar documentos.');
+      ntpDocuments = j.documents || [];
+      ntpFolders = [...new Set(ntpDocuments.map(d => d.folder_path).filter(Boolean))];
+      renderNtpFolderSelect();
+      renderNtpList();
+    } catch(err) {
+      document.getElementById('ntpMsg').textContent = 'Erro: ' + err.message;
+    }
+  }
+
+  function renderNtpFolderSelect() {
+    const sel = document.getElementById('ntpFolderSelect');
+    sel.innerHTML = '<option value="">-- Selecione uma pasta --</option>';
+    const hasFolders = ntpFolders.length > 0;
+    sel.disabled = !hasFolders;
+    if (hasFolders) {
+      ntpFolders.forEach(folder => {
+        const opt = document.createElement("option");
+        opt.value = folder || "";
+        opt.textContent = folder || "Sem pasta";
+        sel.appendChild(opt);
+      });
+    }
+  }
+
+  function renderNtpList() {
+    const list = document.getElementById('ntpList');
+    const downloaded = document.getElementById('ntpDownloaded');
+
+    const downloadedIds = new Set(ntpDocuments.filter(d => d.downloaded === 1).map(d => d.confluence_page_id));
+    const pendingDocs = ntpDocuments.filter(d => d.downloaded === 0);
+    const alreadyDownloaded = ntpDocuments.filter(d => d.downloaded === 1);
+
+    if (pendingDocs.length === 0 && alreadyDownloaded.length === 0) {
+      list.innerHTML = '<div style="padding:20px;text-align:center;">Nenhum documento encontrado.</div>';
+      downloaded.innerHTML = '';
+      return;
+    }
+
+    // Pastas expandidas
+    const folders = [...new Set(ntpDocuments.map(d => d.folder_path).filter(Boolean))];
+    
+    let html = '';
+    folders.forEach(folder => {
+      const folderDocs = pendingDocs.filter(d => d.folder_path === folder);
+      const downloadedFolderDocs = alreadyDownloaded.filter(d => d.folder_path === folder);
+      
+      html += `<div style="margin-bottom:12px;border-top:1px solid var(--border);padding-top:8px;">
+        <div style="font-weight:600;color:var(--text);font-size:.85rem;">${folder}</div>`;
+      
+      if (folderDocs.length > 0) {
+        html += `<div style="margin-top:4px;">
+          <span style="color:var(--muted);font-size:.75rem;">${folderDocs.length} pendente(s)</span>`;
+        folderDocs.forEach(doc => {
+          const isDownloaded = downloadedIds.has(doc.confluence_page_id);
+          const btnClass = isDownloaded ? 'secondary' : 'primary';
+          const btnText = isDownloaded ? '✓ Baixado' : 'Baixar';
+          html += `<div style="margin-top:2px;">
+            <span style="margin-right:4px;color:var(--muted);font-size:.75rem;">${doc.title}</span>
+            <button class="${btnClass}" style="padding:2px 6px;font-size:.7rem;" ${
+              isDownloaded ? 'disabled' : ''
+            } data-page-id="${doc.confluence_page_id}" data-action="${isDownloaded ? 'view' : 'download'}">
+              ${btnText}
+            </button>
+          </div>`;
+        });
+        html += `</div>`;
+      }
+      
+      if (downloadedFolderDocs.length > 0) {
+        html += `<div style="margin-top:4px;color:var(--green);font-size:.75rem;">${downloadedFolderDocs.length} já baixado(s)</div>`;
+      }
+      
+      html += `</div>`;
+    });
+
+    list.innerHTML = html || '<div style="padding:20px;text-align:center;">Nenhum documento encontrado.</div>';
+    
+    // Add event listeners for download/view buttons
+    document.querySelectorAll('#ntpList button[data-action="download"]').forEach(btn => {
+      btn.addEventListener('click', () => downloadDocument(btn.dataset.pageId));
+    });
+    document.querySelectorAll('#ntpList button[data-action="view"]').forEach(btn => {
+      btn.addEventListener('click', () => viewDocument(btn.dataset.pageId));
+    });
+  }
+
+  async function downloadDocument(pageId) {
+    try {
+      const r = await apiFetch(`/api/ntp/documents/${pageId}/content`);
+      const j = await r.json();
+      if (!j.success) throw new Error(j.error || 'Erro ao baixar conteúdo.');
+      
+      const blob = new Blob([j.content], { type: j.contentType || 'application/octet-stream' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = j.fileName || 'documento.ntp';
+      a.click();
+      URL.revokeObjectURL(url);
+      
+      // Marcar como baixado
+      await apiFetch(`/api/ntp/sync`, { method: 'POST' });
+      loadNtpDocuments();
+    } catch(err) {
+      alert('Erro ao baixar: ' + err.message);
+    }
+  }
+
+  async function viewDocument(pageId) {
+    try {
+      const r = await apiFetch(`/api/ntp/documents/${pageId}/content`);
+      const j = await r.json();
+      if (!j.success) throw new Error(j.error || 'Erro ao visualizar conteúdo.');
+      
+      // Show in new tab or preview
+      const content = j.content || '';
+      const preview = window.open('', '_blank');
+      preview.document.write('<pre style="white-space:pre-wrap;padding:10px;font-size:12px;">' + escape(content) + '</pre>');
+      preview.document.close();
+    } catch(err) {
+      alert('Erro ao visualizar: ' + err.message);
+    }
+  }
+
+  // Event listeners
+  document.getElementById('ntpSyncBtn')?.addEventListener('click', async () => {
+    const btn = document.getElementById('ntpSyncBtn');
+    btn.textContent = 'Sincronizando…';
+    btn.disabled = true;
+    try {
+      const res = await apiFetch('/api/ntp/sync', { method: 'POST' });
+      const j = await res.json();
+      if (!j.success) throw new Error(j.error || 'Erro na sincronização.');
+      await loadNtpDocuments();
+      alert(`Sincronização concluída: ${j.sincronizados} novos, ${j.atualizados} atualizados, ${j.pending} pendentes.`);
+    } catch(err) {
+      alert('Erro na sincronização: ' + err.message);
+    } finally {
+      btn.textContent = 'Sincronizar';
+      btn.disabled = false;
+    }
+  });
+
+  document.getElementById('ntpFolderSelect')?.addEventListener('change', (e) => {
+    loadNtpDocuments(e.target.value);
+  });
+
+  document.getElementById('ntpDownloadAllBtn')?.addEventListener('click', async () => {
+    const btn = document.getElementById('ntpDownloadAllBtn');
+    btn.textContent = 'Baixando…';
+    btn.disabled = true;
+    let totalBaixados = 0;
+    let totalErros = 0;
+    try {
+      while (true) {
+        const res = await apiFetch('/api/ntp/download-all?limit=3', { method: 'POST' });
+        const j = await res.json();
+        if (!j.success) throw new Error(j.error || 'Erro no download.');
+        totalBaixados += j.baixados;
+        totalErros += j.erros;
+        await loadNtpDocuments();
+        if (!j.hasMore) break;
+        btn.textContent = `Baixando… (${totalBaixados}/${totalBaixados + j.pending})`;
+      }
+      alert(`Download concluído: ${totalBaixados} baixados, ${totalErros} erros.`);
+    } catch(err) {
+      alert('Erro no download: ' + err.message);
+    } finally {
+      btn.textContent = 'Baixar Todos';
+      btn.disabled = false;
+    }
+  });
+
+  document.getElementById('ntpClose')?.addEventListener('click', () => {
+    document.getElementById('ntpBackdrop').classList.remove('open');
+  });
+
+  // Abrir modal Documentos NTP
+  document.getElementById('ntpDocumentsBtn')?.addEventListener('click', () => {
+    document.getElementById('ntpBackdrop').classList.add('open');
+    loadNtpDocuments();
+  });
+
+  document.getElementById('ntpBackdrop')?.addEventListener('click', e => {
+    if (e.target.id === 'ntpBackdrop') {
+      document.getElementById('ntpBackdrop').classList.remove('open');
+    }
+  });
+  async function cspLoadUsers(){
+    const sel = document.getElementById("cspAssignee");
+    const loading = document.getElementById("cspAssigneeLoading");
+    sel.innerHTML = '<option value="">— sem responsável —</option>';
+    loading.textContent = "Carregando responsáveis…";
+    try {
+      const r = await apiFetch("/api/users?q=");
+      const j = await r.json();
+      cspUsers = j.data || [];
+      cspUsers.forEach(u => {
+        const opt = document.createElement("option");
+        opt.value = u.accountId || "";
+        opt.textContent = u.name || u.email || "—";
+        sel.appendChild(opt);
+      });
+      loading.textContent = "";
+    } catch(e){
+      loading.textContent = "Não foi possível carregar responsáveis.";
+      console.warn("cspLoadUsers:", e.message);
+    }
+  }
+
+  const cspModalOpen = () => {
+    document.getElementById("cspSummary").value = "";
+    document.getElementById("cspDescription").value = "";
+    document.getElementById("cspAssignee").value = "";
+    document.getElementById("cspMsg").textContent = "";
+    cspLoadUsers();
+    document.getElementById("cspBackdrop").classList.add("open");
+  };
+  const cspModalClose = () => document.getElementById("cspBackdrop").classList.remove("open");
+
+  document.getElementById("createCspBtn")?.addEventListener("click", cspModalOpen);
+  document.getElementById("cspClose").addEventListener("click", cspModalClose);
+  document.getElementById("cspCancel").addEventListener("click", cspModalClose);
+  document.getElementById("cspBackdrop").addEventListener("click", (e) => { if (e.target.id === "cspBackdrop") cspModalClose(); });
+
+  document.getElementById("cspCreate").addEventListener("click", async () => {
+    const summary = document.getElementById("cspSummary").value.trim();
+    const description = document.getElementById("cspDescription").value.trim();
+    const assigneeAccountId = document.getElementById("cspAssignee").value || undefined;
+    const pessoa = document.getElementById("cspPessoa").value.trim();
+    const cliente = document.getElementById("cspCliente").value.trim();
+    const btn = document.getElementById("cspCreate");
+    const msg = document.getElementById("cspMsg");
+    if (!summary) { msg.textContent = "Informe o resumo da tarefa."; return; }
+    btn.disabled = true; btn.textContent = "Criando…"; msg.textContent = "";
+    try {
+      const r = await apiFetch("/api/issue/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ summary, description, assigneeAccountId, pessoa, cliente }),
+      });
+      const j = await r.json();
+      if (!j.success) throw new Error(j.error || "Erro ao criar tarefa.");
+      let msgSucesso = `Tarefa criada com sucesso: ${j.key}\n${j.url}`;
+      if (j.autoFinalizado) {
+        msgSucesso += `\nStatus alterado para: ${j.autoFinalizado.name}`;
+      }
+      alert(msgSucesso);
+      cspModalClose();
+    } catch (err) {
+      msg.textContent = "Erro: " + err.message;
+    } finally {
+      btn.disabled = false; btn.textContent = "Criar Tarefa";
+    }
+  });
+
+  // ==================== RAIO-X EM LOTE ====================
+  function fmtDays(d) { if (!d) return "—"; return d.toFixed(1); }
+  function fmtDatePt(iso) { if (!iso) return "—"; try { return new Date(iso).toLocaleString("pt-BR"); } catch (e) { return "—"; } }
+  function msToHours(ms) { if (!ms) return "0.00"; return (ms / 1000 / 3600).toFixed(2); }
+
+  async function openXrayBatch(mode = "oldest") {
+    const backdrop = document.getElementById("xrayBatchBackdrop");
+    const tbody = document.getElementById("xrayBatchTbody");
+    const summaryEl = document.getElementById("xrayBatchSummary");
+    const title = document.getElementById("xrayBatchTitle");
+    const projSel = document.getElementById("xrayBatchProject");
+    const esc = escapeHtml;
+    // Preenche o select de projeto do modal com as mesmas opções da tela principal
+    const mainProj = document.getElementById("projectSelect");
+    if (projSel && mainProj) {
+      projSel.innerHTML = mainProj.innerHTML;
+      projSel.value = mainProj.value;
+    }
+    const project = projSel ? projSel.value : "TO";
+    const diasInput = document.getElementById("xrayBatchDays");
+    const dias = diasInput ? parseInt(diasInput.value) || 7 : 7;
+    backdrop.classList.add("open");
+    tbody.innerHTML = '<tr><td colspan="11" class="empty">Carregando dados…</td></tr>';
+    summaryEl.innerHTML = "";
+
+    title.textContent = mode === "overdue"
+      ? "⚠ Raio-X em Lote — Chamados Atrasados (" + dias + " dias) — " + project
+      : "🔎 Raio-X em Lote — Chamados Mais Antigos — " + project;
+
+    let issues;
+    if (mode === "overdue") {
+      // Busca chamados atrasados via API usando período informado pelo usuário
+      try {
+        const r = await apiFetch("/api/chamados/atrasados?project=" + encodeURIComponent(project) + "&dias=" + dias);
+        const j = await r.json();
+        if (!j.success) throw new Error(j.error);
+        issues = (j.data || []).slice();
+      } catch (e) {
+        tbody.innerHTML = '<tr><td colspan="11" class="empty">Erro ao carregar atrasados: ' + escapeHtml(e.message) + '</td></tr>';
+        return;
+      }
+    } else {
+      issues = (allData || []).filter(d => d.project && d.project.key === project).slice();
+    }
+
+    if (!issues.length) {
+      tbody.innerHTML = '<tr><td colspan="11" class="empty">Nenhum chamado disponível.</td></tr>';
+      return;
+    }
+
+    // Ordena por criado crescente (mais antigos primeiro)
+    issues.sort((a, b) => new Date(a.created || 0) - new Date(b.created || 0));
+
+    const now = new Date();
+    const rows = [];
+    let totalAgeDays = 0;
+    let totalStaleDays = 0;
+    let totalWorklogHours = 0;
+    let oldest = null;
+    let newest = null;
+
+    for (const d of issues) {
+      const created = d.created ? new Date(d.created) : null;
+      const updated = d.updated ? new Date(d.updated) : null;
+      const ageDays = created ? (now - created) / (1000 * 60 * 60 * 24) : 0;
+      const staleDays = updated ? (now - updated) / (1000 * 60 * 60 * 24) : 0;
+
+      // Busca worklogs para somar horas
+      let worklogHours = 0;
+      try {
+        const r = await apiFetch(`/api/issue/${encodeURIComponent(d.key)}/worklog`);
+        const j = await r.json();
+        const wls = (j && j.data) || [];
+        wls.forEach(w => {
+          const sec = w && (w.timeSpentSeconds || 0);
+          worklogHours += sec / 3600;
+        });
+      } catch (e) { /* ignora falha de worklog individual */ }
+
+      totalAgeDays += ageDays;
+      totalStaleDays += staleDays;
+      totalWorklogHours += worklogHours;
+      if (!oldest || ageDays > oldest.ageDays) oldest = { key: d.key, ageDays };
+      if (!newest || ageDays < newest.ageDays) newest = { key: d.key, ageDays };
+
+      rows.push({
+        key: d.key,
+        summary: d.summary || "—",
+        status: d.status || "—",
+        priority: d.priority || "—",
+        assignee: (d.assignee && d.assignee.name) || "—",
+        created: fmtDatePt(d.created),
+        ageDays: fmtDays(ageDays),
+        updated: fmtDatePt(d.updated),
+        staleDays: fmtDays(staleDays),
+        worklogHours: worklogHours.toFixed(2),
+        _ageDays: ageDays,
+        _staleDays: staleDays,
+        _worklogHours: worklogHours,
+      });
+    }
+
+    const avgAge = issues.length ? (totalAgeDays / issues.length).toFixed(1) : "0";
+    const avgStale = issues.length ? (totalStaleDays / issues.length).toFixed(1) : "0";
+
+    // Estatísticas detalhadas para dashboard
+    const prioCount = {};
+    const statusCount = {};
+    const assigneeCount = {};
+    const agingBuckets = { "0-7d": 0, "8-30d": 0, "31-60d": 0, "61+d": 0 };
+    let totalWithWorklog = 0;
+
+    issues.forEach(d => {
+      const p = d.priority || "Não definido";
+      prioCount[p] = (prioCount[p] || 0) + 1;
+
+      const s = d.status || "Não definido";
+      statusCount[s] = (statusCount[s] || 0) + 1;
+
+      const a = (d.assignee && d.assignee.name) || "Não definido";
+      assigneeCount[a] = (assigneeCount[a] || 0) + 1;
+
+      if (d._ageDays <= 7) agingBuckets["0-7d"]++;
+      else if (d._ageDays <= 30) agingBuckets["8-30d"]++;
+      else if (d._ageDays <= 60) agingBuckets["31-60d"]++;
+      else agingBuckets["61+d"]++;
+
+      if (d._worklogHours > 0) totalWithWorklog++;
+    });
+
+    const pct = (n, total) => total ? ((n / total) * 100).toFixed(1) : "0";
+    const topPriority = Object.entries(prioCount).sort((a, b) => b[1] - a[1])[0];
+    const topStatus = Object.entries(statusCount).sort((a, b) => b[1] - a[1])[0];
+    const topAssignee = Object.entries(assigneeCount).sort((a, b) => b[1] - a[1])[0];
+
+    // Render dashboard de estatísticas completo
+    summaryEl.innerHTML = `
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+        <div style="background:var(--card);border:1px solid var(--border);padding:10px 14px;border-radius:0;min-width:130px;flex:1;">
+          <div style="color:var(--muted);font-size:.7rem;text-transform:uppercase;">Total de chamados</div>
+          <div style="font-size:1.6rem;font-weight:900;color:var(--accent2);">${issues.length}</div>
+        </div>
+        <div style="background:var(--card);border:1px solid var(--border);padding:10px 14px;border-radius:0;min-width:130px;flex:1;">
+          <div style="color:var(--muted);font-size:.7rem;text-transform:uppercase;">Idade média (dias)</div>
+          <div style="font-size:1.6rem;font-weight:900;color:var(--accent);">${avgAge}</div>
+        </div>
+        <div style="background:var(--card);border:1px solid var(--border);padding:10px 14px;border-radius:0;min-width:130px;flex:1;">
+          <div style="color:var(--muted);font-size:.7rem;text-transform:uppercase;">Mais antigo</div>
+          <div style="font-size:1.3rem;font-weight:900;color:var(--red);">${oldest ? oldest.key : "—"}</div>
+          <div style="font-size:.7rem;color:var(--muted);">${oldest ? fmtDays(oldest.ageDays) + " dias" : ""}</div>
+        </div>
+        <div style="background:var(--card);border:1px solid var(--border);padding:10px 14px;border-radius:0;min-width:130px;flex:1;">
+          <div style="color:var(--muted);font-size:.7rem;text-transform:uppercase;">Worklogs totais (h)</div>
+          <div style="font-size:1.6rem;font-weight:900;color:var(--accent2);">${totalWorklogHours.toFixed(2)}</div>
+        </div>
+        <div style="background:var(--card);border:1px solid var(--border);padding:10px 14px;border-radius:0;min-width:130px;flex:1;">
+          <div style="color:var(--muted);font-size:.7rem;text-transform:uppercase;">Com worklog</div>
+          <div style="font-size:1.6rem;font-weight:900;color:var(--green);">${totalWithWorklog}/${issues.length}</div>
+        </div>
+        <div style="background:var(--card);border:1px solid var(--border);padding:10px 14px;border-radius:0;min-width:130px;flex:1;">
+          <div style="color:var(--muted);font-size:.7rem;text-transform:uppercase;">Sem atualiz. média</div>
+          <div style="font-size:1.6rem;font-weight:900;color:var(--amber);">${avgStale}</div>
+        </div>
+      </div>
+
+      <!-- Gráfico de envelhecimento -->
+      <div style="display:flex;gap:8px;margin-bottom:10px;">
+        <div style="background:var(--card);border:1px solid var(--border);padding:8px;border-radius:0;flex:1;">
+          <div style="color:var(--muted);font-size:.7rem;text-transform:uppercase;margin-bottom:6px;">Envelhecimento</div>
+          <div style="display:flex;gap:4px;font-size:.65rem;">
+            <div style="flex:1;text-align:center;">
+              <div style="color:var(--green);font-weight:700;">${agingBuckets["0-7d"]}</div>
+              <div style="color:var(--muted);font-size:.6rem;">0-7d</div>
+            </div>
+            <div style="flex:1;text-align:center;">
+              <div style="color:var(--amber);font-weight:700;">${agingBuckets["8-30d"]}</div>
+              <div style="color:var(--muted);font-size:.6rem;">8-30d</div>
+            </div>
+            <div style="flex:1;text-align:center;">
+              <div style="color:#f39c12;font-weight:700;">${agingBuckets["31-60d"]}</div>
+              <div style="color:var(--muted);font-size:.6rem;">31-60d</div>
+            </div>
+            <div style="flex:1;text-align:center;">
+              <div style="color:var(--red);font-weight:700;">${agingBuckets["61+d"]}</div>
+              <div style="color:var(--muted);font-size:.6rem;">61+d</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Distribuições lado a lado -->
+      <div style="display:flex;gap:8px;margin-bottom:10px;">
+        <div style="background:var(--card);border:1px solid var(--border);padding:8px;border-radius:0;flex:1;">
+          <div style="color:var(--muted);font-size:.7rem;text-transform:uppercase;margin-bottom:6px;">Por Prioridade</div>
+          ${Object.entries(prioCount).map(([p, c]) => `
+            <div style="display:flex;justify-content:space-between;font-size:.68rem;margin-bottom:2px;">
+              <span style="color:var(--muted);">${esc(p)}</span>
+              <span style="font-weight:700;">${c} (${pct(c, issues.length)}%)</span>
+            </div>
+          `).join("")}
+        </div>
+        <div style="background:var(--card);border:1px solid var(--border);padding:8px;border-radius:0;flex:1;">
+          <div style="color:var(--muted);font-size:.7rem;text-transform:uppercase;margin-bottom:6px;">Por Status</div>
+          ${Object.entries(statusCount).map(([s, c]) => `
+            <div style="display:flex;justify-content:space-between;font-size:.68rem;margin-bottom:2px;">
+              <span style="color:var(--muted);">${esc(s)}</span>
+              <span style="font-weight:700;">${c} (${pct(c, issues.length)}%)</span>
+            </div>
+          `).join("")}
+        </div>
+        <div style="background:var(--card);border:1px solid var(--border);padding:8px;border-radius:0;flex:1;">
+          <div style="color:var(--muted);font-size:.7rem;text-transform:uppercase;margin-bottom:6px;">Por Responsável</div>
+          ${Object.entries(assigneeCount).map(([a, c]) => `
+            <div style="display:flex;justify-content:space-between;font-size:.68rem;margin-bottom:2px;">
+              <span style="color:var(--muted);">${esc(a)}</span>
+              <span style="font-weight:700;">${c} (${pct(c, issues.length)}%)</span>
+            </div>
+          `).join("")}
+        </div>
+      </div>
+
+      <!-- Destaques -->
+      <div style="display:flex;gap:8px;margin-bottom:10px;">
+        <div style="background:var(--card);border:1px solid var(--border);padding:8px;border-radius:0;flex:1;">
+          <div style="color:var(--muted);font-size:.7rem;text-transform:uppercase;margin-bottom:4px;">Prioridade mais frequente</div>
+          <div style="font-size:1.1rem;font-weight:800;color:var(--accent);">${topPriority ? topPriority[0] : "—"} (${topPriority ? topPriority[1] : 0})</div>
+        </div>
+        <div style="background:var(--card);border:1px solid var(--border);padding:8px;border-radius:0;flex:1;">
+          <div style="color:var(--muted);font-size:.7rem;text-transform:uppercase;margin-bottom:4px;">Status mais frequente</div>
+          <div style="font-size:1.1rem;font-weight:800;color:var(--accent);">${topStatus ? topStatus[0] : "—"} (${topStatus ? topStatus[1] : 0})</div>
+        </div>
+        <div style="background:var(--card);border:1px solid var(--border);padding:8px;border-radius:0;flex:1;">
+          <div style="color:var(--muted);font-size:.7rem;text-transform:uppercase;margin-bottom:4px;">Responsável mais carregado</div>
+          <div style="font-size:1.1rem;font-weight:800;color:var(--accent);">${topAssignee ? topAssignee[0] : "—"} (${topAssignee ? topAssignee[1] : 0})</div>
+        </div>
+      </div>
+    `;
+
+    // Render tabela
+    tbody.innerHTML = rows.map(r => `
+      <tr style="height:34px;">
+        <td style="padding:5px 8px;"><span class="act-key" style="cursor:pointer;font-weight:700;" onclick="openIssueDrawer('${r.key}'); closeXrayBatch();">${escapeHtml(r.key)}</span></td>
+        <td style="padding:5px 8px;"><button class="secondary" style="font-size:.72rem;padding:3px 7px;" onclick="openXrayBatchDetail('${r.key}');" title="Ver raio-x completo do chamado">${escapeHtml(r.key)}</button></td>
+        <td style="padding:5px 8px;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(r.summary)}</td>
+        <td style="padding:5px 8px;">${escapeHtml(r.status)}</td>
+        <td style="padding:5px 8px;"><span class="badge prio-${r.priority}">${escapeHtml(r.priority)}</span></td>
+        <td style="padding:5px 8px;">${escapeHtml(r.assignee)}</td>
+        <td style="padding:5px 8px;">${r.created}</td>
+        <td style="padding:5px 8px;font-weight:700;${r._ageDays > 30 ? 'color:var(--red);' : r._ageDays > 14 ? 'color:var(--amber);' : 'color:var(--green);'}">${r.ageDays} d</td>
+        <td style="padding:5px 8px;">${r.updated}</td>
+        <td style="padding:5px 8px;${r._staleDays > 7 ? 'color:var(--red);font-weight:700;' : ''}">${r.staleDays} d</td>
+        <td style="padding:5px 8px;">${r.worklogHours} h</td>
+      </tr>
+    `).join("");
+
+    window.__xrayBatchRows = rows;
+  }
+
+  // Abre o raio-x completo DENTRO do modal do lote (painel de detalhes), sem fechar o modal
+  async function openXrayBatchDetail(key) {
+    if (!key) return;
+    const detailWrap = document.getElementById("xrayBatchDetail");
+    const detailContent = document.getElementById("xrayBatchDetailContent");
+    detailWrap.style.display = "block";
+    detailContent.innerHTML = '<div class="empty">Carregando raio-x do chamado ' + key + '…</div>';
+    // Scroll para o painel de detalhes
+    detailWrap.scrollIntoView({ behavior: "smooth", block: "center" });
+    try {
+      const [rIssue, rAnalysis, rWl] = await Promise.all([
+        apiFetch("/api/issue/" + encodeURIComponent(key)),
+        apiFetch("/api/issue/" + encodeURIComponent(key) + "/analysis"),
+        apiFetch("/api/issue/" + encodeURIComponent(key) + "/worklog"),
+      ]);
+      const j = await rIssue.json();
+      const ja = await rAnalysis.json();
+      const jw = await rWl.json();
+      if (!j.success) throw new Error(j.error);
+      const d = j.data;
+      const issue = d.issue || {};
+      const analysis = (ja && ja.success) ? ja.data : null;
+      const worklogs = (jw && jw.success) ? (jw.data || []) : [];
+      const comments = d.comments || [];
+      const histories = (d.changelog && d.changelog.histories ? d.changelog.histories : []).slice().sort((a,b)=>new Date(a.created)-new Date(b.created));
+      const attachments = issue.attachments || d.attachments || [];
+      const adfToTextFn = (typeof adfToText === "function") ? adfToText : null;
+
+      const esc = escapeHtml;
+      let html = "";
+      html += "<div class=\"section\"><h4>📋 Dados do chamado — " + esc(key) + "</h4>";
+      html += "<div class=\"kv\">";
+      html += "<div>Resumo</div><div>" + esc(issue.summary||"—") + "</div>";
+      html += "<div>Status</div><div>" + esc(issue.status||"—") + "</div>";
+      html += "<div>Prioridade</div><div>" + esc(issue.priority||"—") + "</div>";
+      html += "<div>Tipo</div><div>" + esc(issue.issueType||"—") + "</div>";
+      html += "<div>Responsável</div><div>" + esc(issue.assignee?issue.assignee.name:"—") + "</div>";
+      html += "<div>Relator</div><div>" + esc(issue.reporter?issue.reporter.name:"—") + "</div>";
+      html += "<div>Criado</div><div>" + (issue.created?new Date(issue.created).toLocaleString("pt-BR"):"—") + "</div>";
+      html += "<div>Atualizado</div><div>" + (issue.updated?new Date(issue.updated).toLocaleString("pt-BR"):"—") + "</div>";
+      html += "<div>Resolução</div><div>" + esc(issue.resolution||"—") + "</div>";
+      html += "<div>Projeto</div><div>" + esc(issue.project?issue.project.key+" - "+issue.project.name:"—") + "</div>";
+      html += "<div>Anexos</div><div>" + attachments.length + "</div>";
+      html += "</div></div>";
+
+      if (issue.description) {
+        const dt = typeof issue.description === "string" ? issue.description : (adfToTextFn ? adfToTextFn(issue.description) : JSON.stringify(issue.description));
+        html += "<div class=\"section\"><h4>Descrição</h4><div style=\"white-space:pre-wrap;font-size:.85rem;\">" + esc(dt) + "</div></div>";
+      }
+
+      // Intenção / análise (se disponível)
+      if (analysis) {
+        html += "<div class=\"section\"><h4>🔍 Análise</h4>";
+        const aInt = analysis.intencao || analysis.intention || analysis.intent;
+        const aConv = analysis.conversa || analysis.conversation;
+        const aTrans = analysis.transicoes || analysis.transitions;
+        if (aInt) html += "<div><b>Intenção:</b> " + esc(formatField(aInt)) + "</div>";
+        if (aConv) html += "<div><b>Conversa:</b><div style=\"margin-left:10px;font-size:.82rem;\">" + formatField(aConv) + "</div></div>";
+        if (aTrans) html += "<div><b>Transições:</b><div style=\"margin-left:10px;font-size:.82rem;\">" + formatField(aTrans) + "</div></div>";
+        html += "</div>";
+      }
+
+      // Helper: formata qualquer valor para exibição segura
+      function formatField(v) {
+        if (v == null) return "—";
+        if (typeof v === "string") return v;
+        if (Array.isArray(v)) {
+          return v.map(item => {
+            if (typeof item === "object" && item !== null) {
+              const author = item.author || item.authorDisplayName || item.name || "—";
+              const body = item.body || "";
+              const date = item.date || item.created || item.createdOn || "";
+              return `${esc(author)} (${date}): ${esc(body)}`;
+            }
+            return esc(String(item));
+          }).join("<br>");
+        }
+        if (typeof v === "object") {
+          const parts = [];
+          if (v.summary) parts.push(`Resumo: ${v.summary}`);
+          if (v.reporter) parts.push(`Reporter: ${v.reporter}`);
+          if (v.assignee) parts.push(`Assignee: ${v.assignee}`);
+          if (v.status) parts.push(`Status: ${v.status}`);
+          if (v.priority) parts.push(`Prioridade: ${v.priority}`);
+          if (v.created) parts.push(`Criado: ${v.created}`);
+          if (parts.length > 0) return parts.join(" | ");
+          try { return JSON.stringify(v); } catch (_) { return String(v); }
+        }
+        return String(v);
+      }
+
+      // Comentários
+      if (comments && comments.length) {
+        html += "<div class=\"section\"><h4>💬 Comentários (" + comments.length + ")</h4>";
+        comments.forEach(c => {
+          const author = c && c.author ? (c.author.displayName || c.author.name || c.author.emailAddress || "—") : "—";
+          const body = c && c.body ? String(c.body) : "";
+          const created = c && c.created ? new Date(c.created).toLocaleString("pt-BR") : "—";
+          html += "<div style=\"margin-bottom:6px;font-size:.85rem;\"><b>" + esc(author) + "</b> <span style=\"color:var(--muted);font-size:.75rem;\">" + esc(created) + "</span><div style=\"white-space:pre-wrap;margin-top:2px;\">" + esc(body) + "</div></div>";
+        });
+        html += "</div>";
+      }
+
+      // Worklogs
+      if (worklogs && worklogs.length) {
+        const totalSec = worklogs.reduce((s,w)=>s+(w&&w.timeSpentSeconds||0),0);
+        html += "<div class=\"section\"><h4>⏱ Worklogs (" + worklogs.length + ") — total " + (totalSec/3600).toFixed(2) + " h</h4>";
+        worklogs.forEach(w => {
+          const author = w && w.author ? (w.author.displayName || w.author.name || w.author.emailAddress || "—") : "—";
+          const created = w && w.started ? new Date(w.started).toLocaleString("pt-BR") : "—";
+          const spent = w && w.timeSpentSeconds ? (w.timeSpentSeconds/3600).toFixed(2) : "0";
+          const comment = w && w.comment ? String(w.comment) : "";
+          html += "<div style=\"margin-bottom:4px;font-size:.82rem;\"><b>" + esc(author) + "</b> — " + esc(spent) + " h <span style=\"color:var(--muted);font-size:.75rem;\">" + esc(created) + "</span>" + (comment ? "<div style=\"white-space:pre-wrap;margin-top:2px;\">" + esc(comment) + "</div>" : "") + "</div>";
+        });
+        html += "</div>";
+      }
+
+      // Transições de status
+      if (histories && histories.length) {
+        html += "<div class=\"section\"><h4>📜 Histórico de transições (" + histories.length + ")</h4>";
+        histories.forEach(h => {
+          const author = h && h.author ? (h.author.displayName || h.author.name || h.author.emailAddress || "—") : "—";
+          const created = h && h.created ? new Date(h.created).toLocaleString("pt-BR") : "—";
+          const items = (h.items || []).map(it => {
+            const field = it && it.field ? it.field : "";
+            const from = it && it.fromString ? it.fromString : "";
+            const to = it && it.toString ? it.toString : "";
+            return field ? (field + ": " + esc(from||"—") + " → " + esc(to||"—")) : "";
+          }).filter(Boolean);
+          html += "<div style=\"margin-bottom:4px;font-size:.82rem;\"><b>" + esc(author) + "</b> <span style=\"color:var(--muted);font-size:.75rem;\">" + esc(created) + "</span>" + (items.length ? "<div style=\"margin-top:1px;\">" + items.join("; ") + "</div>" : "") + "</div>";
+        });
+        html += "</div>";
+      }
+
+      html += "<div style=\"margin-top:10px;text-align:right;\"><button class=\"secondary\" id=\"xrayBatchDetailCloseBtn\" style=\"padding:4px 12px;\">Fechar detalhes</button></div>";
+      detailContent.innerHTML = html;
+      document.getElementById("xrayBatchDetailCloseBtn").addEventListener("click", () => {
+        detailWrap.style.display = "none";
+        detailContent.innerHTML = "";
+      });
+    } catch (e) {
+      detailContent.innerHTML = "<div class=\"error\">Erro ao carregar raio-x do chamado " + esc(key) + ": " + esc(e.message) + "</div>";
+    }
+  }
+
+  document.getElementById("xrayBatchDetailClose").addEventListener("click", () => {
+    const detailWrap = document.getElementById("xrayBatchDetail");
+    const detailContent = document.getElementById("xrayBatchDetailContent");
+    detailWrap.style.display = "none";
+    detailContent.innerHTML = "";
+  });
+
+  function closeXrayBatch() {
+    document.getElementById("xrayBatchBackdrop").classList.remove("open");
+  }
+
+  document.getElementById("xrayBatchClose").addEventListener("click", closeXrayBatch);
+  document.getElementById("xrayBatchCloseBtn").addEventListener("click", closeXrayBatch);
+  document.getElementById("xrayBatchBackdrop").addEventListener("click", (e) => { if (e.target.id === "xrayBatchBackdrop") closeXrayBatch(); });
+
+  document.getElementById("xrayBatchCopy").addEventListener("click", () => {
+    const rows = window.__xrayBatchRows || [];
+    if (!rows.length) { alert("Nada para copiar."); return; }
+    const header = ["Chave","Raio-X","Resumo","Status","Prioridade","Responsável","Criado","Idade (dias)","Últ. atualização","Dias sem atualizar","Worklogs (h)"].join("\t");
+    const body = rows.map(r => [r.key,"—",r.summary,r.status,r.priority,r.assignee,r.created,r.ageDays,r.updated,r.staleDays,r.worklogHours].join("\t")).join("\n");
+    navigator.clipboard.writeText(header + "\n" + body).then(() => alert("Tabela copiada para a área de transferência.")).catch(() => alert("Não foi possível copiar."));
+  });
+
+  document.getElementById("xrayBatchExport").addEventListener("click", async () => {
+    const rows = window.__xrayBatchRows || [];
+    if (!rows.length) { alert("Nada para exportar."); return; }
+    try {
+      // Mesmo padrão do sistema: html2canvas + jsPDF
+      const { jsPDF } = window.jspdf;
+      if (!jsPDF || typeof jsPDF !== "function") {
+        alert("Biblioteca PDF não disponível.");
+        return;
+      }
+      const esc = escapeHtml;
+
+      // Monta HTML da tabela para renderizar como imagem
+      const mode = document.getElementById("xrayBatchTitle").textContent.includes("Atrasados") ? "atrasados" : "antigos";
+      const titleHtml = mode === "atrasados" ? "Raio-X em Lote — Chamados Atrasados" : "Raio-X em Lote — Chamados Mais Antigos";
+      const projectSelect = document.getElementById("xrayBatchProject");
+      const projectName = projectSelect ? projectSelect.options[projectSelect.selectedIndex]?.text : "Todos";
+
+      const nowStr = new Date().toLocaleString("pt-BR");
+      const fetched = "";
+      const scopeLabel = projectName;
+
+      // --- Análises para dashboard ---
+      const totalChamados = rows.length;
+      const totalWorklogHours = rows.reduce((s, r) => s + parseFloat(r.worklogHours || 0), 0);
+      const avgAge = totalChamados ? (rows.reduce((s, r) => s + parseFloat(r.ageDays || 0), 0) / totalChamados).toFixed(1) : "0";
+      const avgStale = totalChamados ? (rows.reduce((s, r) => s + parseFloat(r.staleDays || 0), 0) / totalChamados).toFixed(1) : "0";
+
+      // Contagem por prioridade
+      const prioCount = {};
+      rows.forEach(r => { const p = r.priority || "—"; prioCount[p] = (prioCount[p] || 0) + 1; });
+      const prioRows = Object.entries(prioCount).map(([p, c]) => `<tr><td style="padding:3px 6px;border:1px solid #dee2e6;">${esc(p)}</td><td style="padding:3px 6px;border:1px solid #dee2e6;text-align:center;">${c}</td><td style="padding:3px 6px;border:1px solid #dee2e6;text-align:center;">${((c/totalChamados)*100).toFixed(1)}%</td></tr>`).join("");
+
+      // Contagem por status
+      const statusCount = {};
+      rows.forEach(r => { const s = r.status || "—"; statusCount[s] = (statusCount[s] || 0) + 1; });
+      const statusRows = Object.entries(statusCount).map(([s, c]) => `<tr><td style="padding:3px 6px;border:1px solid #dee2e6;">${esc(s)}</td><td style="padding:3px 6px;border:1px solid #dee2e6;text-align:center;">${c}</td><td style="padding:3px 6px;border:1px solid #dee2e6;text-align:center;">${((c/totalChamados)*100).toFixed(1)}%</td></tr>`).join("");
+
+      // Contagem por responsável
+      const assigneeCount = {};
+      rows.forEach(r => { const a = r.assignee || "Não definido"; assigneeCount[a] = (assigneeCount[a] || 0) + 1; });
+      const assigneeRows = Object.entries(assigneeCount).map(([a, c]) => `<tr><td style="padding:3px 6px;border:1px solid #dee2e6;">${esc(a)}</td><td style="padding:3px 6px;border:1px solid #dee2e6;text-align:center;">${c}</td><td style="padding:3px 6px;border:1px solid #dee2e6;text-align:center;">${((c/totalChamados)*100).toFixed(1)}%</td></tr>`).join("");
+
+      // Mais antigos / mais críticos
+      const sortedByAge = [...rows].sort((a, b) => parseFloat(b.ageDays || 0) - parseFloat(a.ageDays || 0));
+      const topOldest = sortedByAge.slice(0, 5).map(r => `<tr><td style="padding:3px 6px;border:1px solid #dee2e6;font-weight:700;">${esc(r.key)}</td><td style="padding:3px 6px;border:1px solid #dee2e6;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(r.summary)}</td><td style="padding:3px 6px;border:1px solid #dee2e6;text-align:center;">${r.ageDays} d</td><td style="padding:3px 6px;border:1px solid #dee2e6;">${esc(r.status)}</td></tr>`).join("");
+
+      const html = `
+        <div style="font-family:'Barlow',sans-serif;color:#002436;padding:8px;box-sizing:border-box;width:790px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:3px solid #EA4F24;padding-bottom:6px;margin-bottom:8px;">
+            <div style="display:flex;align-items:center;gap:6px;">
+              <div style="font-family:'Tomorrow',sans-serif;font-size:1.5rem;font-weight:700;color:#002436;line-height:1;">AZ</div>
+              <div>
+                <div style="font-family:'Tomorrow',sans-serif;font-size:1rem;font-weight:700;color:#002436;">${titleHtml}</div>
+                <div style="font-size:.7rem;color:#575756;">AZ Tecnologia de gestão · Dashboard Jira</div>
+              </div>
+            </div>
+            <div style="text-align:right;font-size:.65rem;color:#575756;">
+              <div><b>Gerado em:</b> ${esc(nowStr)}</div>
+              <div>${esc(fetched)}</div>
+              <div>${esc(scopeLabel)}</div>
+            </div>
+          </div>
+          <div style="margin-bottom:8px;font-size:.7rem;color:#575756;">
+            <b>Projeto:</b> ${esc(projectName)}
+          </div>
+
+          <!-- Dashboard de Análises -->
+          <div style="margin-bottom:8px;">
+            <div style="font-family:'Tomorrow',sans-serif;font-size:.85rem;font-weight:700;color:#002436;margin-bottom:6px;border-left:3px solid #EA4F24;padding-left:5px;">📊 Análise dos Dados</div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px;">
+              <div style="background:#002436;color:#fff;padding:6px 8px;border-radius:0;min-width:100px;text-align:center;">
+                <div style="font-size:.6rem;color:#aaa;text-transform:uppercase;">Total chamados</div>
+                <div style="font-size:1.1rem;font-weight:800;">${totalChamados}</div>
+              </div>
+              <div style="background:#002436;color:#fff;padding:6px 8px;border-radius:0;min-width:100px;text-align:center;">
+                <div style="font-size:.6rem;color:#aaa;text-transform:uppercase;">Idade média</div>
+                <div style="font-size:1.1rem;font-weight:800;">${avgAge} d</div>
+              </div>
+              <div style="background:#002436;color:#fff;padding:6px 8px;border-radius:0;min-width:100px;text-align:center;">
+                <div style="font-size:.6rem;color:#aaa;text-transform:uppercase;">Sem atualiz. média</div>
+                <div style="font-size:1.1rem;font-weight:800;">${avgStale} d</div>
+              </div>
+              <div style="background:#002436;color:#fff;padding:6px 8px;border-radius:0;min-width:100px;text-align:center;">
+                <div style="font-size:.6rem;color:#aaa;text-transform:uppercase;">Worklogs totais</div>
+                <div style="font-size:1.1rem;font-weight:800;">${totalWorklogHours.toFixed(2)} h</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tabelas de distribuição lado a lado -->
+          <div style="display:flex;gap:6px;margin-bottom:8px;">
+            <div style="flex:1;">
+              <div style="font-size:.68rem;font-weight:700;color:#002436;margin-bottom:3px;">Por Prioridade</div>
+              <table style="width:100%;border-collapse:collapse;font-size:.6rem;">
+                <thead style="background:#002436;color:#fff;">
+                  <tr><th style="padding:2px 5px;text-align:left;border:1px solid #dee2e6;">Prioridade</th><th style="padding:2px 5px;text-align:center;border:1px solid #dee2e6;">Qtd</th><th style="padding:2px 5px;text-align:center;border:1px solid #dee2e6;">%</th></tr>
+                </thead>
+                <tbody>${prioRows}</tbody>
+              </table>
+            </div>
+            <div style="flex:1;">
+              <div style="font-size:.68rem;font-weight:700;color:#002436;margin-bottom:3px;">Por Status</div>
+              <table style="width:100%;border-collapse:collapse;font-size:.6rem;">
+                <thead style="background:#002436;color:#fff;">
+                  <tr><th style="padding:2px 5px;text-align:left;border:1px solid #dee2e6;">Status</th><th style="padding:2px 5px;text-align:center;border:1px solid #dee2e6;">Qtd</th><th style="padding:2px 5px;text-align:center;border:1px solid #dee2e6;">%</th></tr>
+                </thead>
+                <tbody>${statusRows}</tbody>
+              </table>
+            </div>
+            <div style="flex:1;">
+              <div style="font-size:.68rem;font-weight:700;color:#002436;margin-bottom:3px;">Por Responsável</div>
+              <table style="width:100%;border-collapse:collapse;font-size:.6rem;">
+                <thead style="background:#002436;color:#fff;">
+                  <tr><th style="padding:2px 5px;text-align:left;border:1px solid #dee2e6;">Responsável</th><th style="padding:2px 5px;text-align:center;border:1px solid #dee2e6;">Qtd</th><th style="padding:2px 5px;text-align:center;border:1px solid #dee2e6;">%</th></tr>
+                </thead>
+                <tbody>${assigneeRows}</tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Chamados mais antigos -->
+          <div style="margin-bottom:8px;">
+            <div style="font-size:.68rem;font-weight:700;color:#002436;margin-bottom:3px;">⏳ Mais Antigos (top 5)</div>
+            <table style="width:100%;border-collapse:collapse;font-size:.6rem;">
+              <thead style="background:#002436;color:#fff;">
+                <tr><th style="padding:2px 5px;text-align:left;border:1px solid #dee2e6;">Chave</th><th style="padding:2px 5px;text-align:left;border:1px solid #dee2e6;">Resumo</th><th style="padding:2px 5px;text-align:center;border:1px solid #dee2e6;">Idade</th><th style="padding:2px 5px;text-align:left;border:1px solid #dee2e6;">Status</th></tr>
+              </thead>
+              <tbody>${topOldest}</tbody>
+            </table>
+          </div>
+
+          <!-- Tabela detalhada -->
+          <div style="font-size:.68rem;font-weight:700;color:#002436;margin-bottom:3px;">📋 Detalhamento dos Chamados</div>
+          <table style="width:100%;border-collapse:collapse;font-size:.58rem;table-layout:fixed;">
+            <thead style="background:#002436;color:#ffffff;">
+              <tr style="table-layout:fixed;">
+                <th style="width:95px;padding:2px 4px;text-align:left;border:1px solid #dee2e6;">Chave</th>
+                <th style="width:150px;padding:2px 4px;text-align:left;border:1px solid #dee2e6;">Resumo</th>
+                <th style="width:75px;padding:2px 4px;text-align:left;border:1px solid #dee2e6;">Status</th>
+                <th style="width:65px;padding:2px 4px;text-align:left;border:1px solid #dee2e6;">Prioridade</th>
+                <th style="width:95px;padding:2px 4px;text-align:left;border:1px solid #dee2e6;">Responsável</th>
+                <th style="width:85px;padding:2px 4px;text-align:left;border:1px solid #dee2e6;">Criado</th>
+                <th style="width:55px;padding:2px 4px;text-align:left;border:1px solid #dee2e6;">Idade (d)</th>
+                <th style="width:75px;padding:2px 4px;text-align:left;border:1px solid #dee2e6;">Últ. atualiz.</th>
+                <th style="width:65px;padding:2px 4px;text-align:left;border:1px solid #dee2e6;">Sem atualiz. (d)</th>
+                <th style="width:65px;padding:2px 4px;text-align:left;border:1px solid #dee2e6;">Worklogs (h)</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows.map(r => `
+                <tr style="table-layout:fixed;">
+                  <td style="width:95px;padding:1px 4px;border:1px solid #dee2e6;font-weight:700;word-wrap:break-word;word-break:break-word;white-space:normal;">${esc(r.key)}</td>
+                  <td style="width:150px;padding:1px 4px;border:1px solid #dee2e6;word-wrap:break-word;word-break:break-word;white-space:normal;">${esc(r.summary)}</td>
+                  <td style="width:75px;padding:1px 4px;border:1px solid #dee2e6;word-wrap:break-word;word-break:break-word;white-space:normal;">${esc(r.status)}</td>
+                  <td style="width:65px;padding:1px 4px;border:1px solid #dee2e6;word-wrap:break-word;word-break:break-word;white-space:normal;">${esc(r.priority)}</td>
+                  <td style="width:95px;padding:1px 4px;border:1px solid #dee2e6;word-wrap:break-word;word-break:break-word;white-space:normal;">${esc(r.assignee)}</td>
+                  <td style="width:85px;padding:1px 4px;border:1px solid #dee2e6;word-wrap:break-word;word-break:break-word;white-space:normal;">${esc(r.created)}</td>
+                  <td style="width:55px;padding:1px 4px;border:1px solid #dee2e6;word-wrap:break-word;word-break:break-word;white-space:normal;">${esc(r.ageDays)}</td>
+                  <td style="width:75px;padding:1px 4px;border:1px solid #dee2e6;word-wrap:break-word;word-break:break-word;white-space:normal;">${esc(r.updated)}</td>
+                  <td style="width:65px;padding:1px 4px;border:1px solid #dee2e6;word-wrap:break-word;word-break:break-word;white-space:normal;">${esc(r.staleDays)}</td>
+                  <td style="width:65px;padding:1px 4px;border:1px solid #dee2e6;word-wrap:break-word;word-break:break-word;white-space:normal;">${esc(r.worklogHours)}</td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+          <div style="margin-top:8px;font-size:.65rem;color:#575756;border-top:1px solid #dee2e6;padding-top:4px;">
+            Relatório gerado automaticamente pelo Dashboard de Chamados — AZ Tecnologia de gestão.
+          </div>
+        </div>
+      `;
+
+      const container = document.createElement("div");
+      container.style.cssText = "position:fixed;left:-10000px;top:0;width:790px;background:#ffffff;padding:0;font-family:'Barlow',sans-serif;color:#002436;box-sizing:border-box;";
+      container.innerHTML = html;
+      document.body.appendChild(container);
+
+      await new Promise(resolve => {
+        const imgs = container.querySelectorAll("img");
+        if (imgs.length === 0) return resolve();
+        let pending = imgs.length;
+        imgs.forEach(img => {
+          if (img.complete) { if (--pending === 0) resolve(); }
+          else { img.onload = img.onerror = () => { if (--pending === 0) resolve(); }; }
+        });
+      });
+
+      const canvas = await html2canvas(container, { scale: 3, useCORS: true, backgroundColor: "#ffffff", logging: false });
+      document.body.removeChild(container);
+
+      const pdf = new jsPDF("p", "mm", "a4");
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = pdf.internal.pageSize.getHeight();
+      const imgData = canvas.toDataURL("image/png");
+      let imgWidth = pdfWidth - 4;
+      let imgHeight = (canvas.height * imgWidth) / canvas.width;
+      if (imgHeight > pdfHeight - 8) {
+        const scale = (pdfHeight - 8) / imgHeight;
+        imgWidth = imgWidth * scale;
+        imgHeight = imgHeight * scale;
+      }
+      const x = (pdfWidth - imgWidth) / 2;
+      pdf.addImage(imgData, "PNG", x, 4, imgWidth, imgHeight);
+
+      pdf.save("raio-x-batch-" + mode + "-" + new Date().toISOString().slice(0,10) + ".pdf");
+    } catch (e) {
+      alert("Falha ao gerar PDF: " + (e && e.message ? e.message : e));
+    }
+  });
+
+  // Botão: Analisar atrasados (dentro do modal)
+  document.getElementById("xrayBatchOverdue").addEventListener("click", () => {
+    openXrayBatch("overdue");
+  });
+
+  // Botão principal do header — chamados mais antigos primeiro
+  document.getElementById("sortOldestBtn").addEventListener("click", () => {
+    const ordered = [...(allData || [])].sort((a, b) => new Date(a.created || 0) - new Date(b.created || 0));
+    filteredData = ordered;
+    data = filteredData;
+    sortBy = "createdOldest";
+    renderTable();
+    updatePageInfo();
+    const hint = document.getElementById("hint");
+    if (hint) hint.textContent = "Ordenação: chamados mais antigos primeiro";
+    // Abre o raio-x em lote automaticamente para ver o tempo de todos
+    openXrayBatch("oldest");
+  });
+
   </script>
   <footer class="az-footer">
     <div class="row">
